@@ -737,20 +737,21 @@ function aggregateB1610(rawB, demRows, fuelhh) {
   // FUELHH fields: settlementPeriod, fuelType, generation
 
   const byKey={}; // `${sp}|${gsp}|${fuel}` → mw
-  let matched=0, unmatched=0;
+  let matchedMW=0, unmatchedMW=0;
   rawB.forEach(row=>{
     const bmId  = row.bmUnit || '';
     const ngId  = row.nationalGridBmUnitId || '';
     const sp    = row.settlementPeriod;
     const qty   = +(row.quantity||0);
     if(!sp) return;
-    // Try multiple join strategies in order
-    const ref = bmRef.get(bmId)
-             || bmRef.get(ngId)
-             || bmRef.get(bmId.replace(/^2__/,''))
-             || bmRef.get(bmId.replace(/^[A-Z]_/,''));
-    if(!ref) { unmatched++; return; }
-    matched++;
+    // Join strategy — try every plausible key
+    const ref = bmRef.get(bmId)                          // "T_ABRBO-1" direct match to elexonBmUnit
+             || bmRef.get(ngId)                          // "AG-ALIM02" → nationalGridBmUnit
+             || bmRef.get(bmId.replace(/^2__/,''))       // "2__ABRU-1" → "ABRU-1"
+             || bmRef.get('T_'+bmId.replace(/^2__/,''))  // try T_ prefix
+             || bmRef.get('E_'+bmId.replace(/^2__/,''));  // try E_ prefix
+    if(!ref){ unmatchedMW+=Math.abs(qty); return; }
+    matchedMW+=Math.abs(qty);
     const ft   = ref.fuelType||'OTHER';
     const gsp  = ref.gspGroupId||'';
     if(!GSP_MAP[gsp]) return;
@@ -760,7 +761,8 @@ function aggregateB1610(rawB, demRows, fuelhh) {
     const key=`${sp}|${gsp}|${fuel}`;
     byKey[key]=(byKey[key]||0)+qty;
   });
-  console.log(`B1610 match rate: ${matched} matched, ${unmatched} unmatched (${(matched/(matched+unmatched)*100).toFixed(0)}%)`);
+  const matchPct=(matchedMW/(matchedMW+unmatchedMW)*100).toFixed(0);
+  console.log(`B1610 MW match: ${Math.round(matchedMW)} matched, ${Math.round(unmatchedMW)} unmatched (${matchPct}% by MW)`);
 
   // ITSDO is national only (no GSP breakdown) — distribute proportionally later
   // For now store as national total by SP
