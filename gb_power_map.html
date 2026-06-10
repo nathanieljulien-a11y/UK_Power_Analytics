@@ -361,22 +361,9 @@ function topFuels(byFuel) {
 
 function renderMap() {
   const paths=svg.selectAll('path.rgn');
-  if(paths.size()===0){ console.warn('renderMap: no paths in SVG yet'); return; }
+  if(paths.size()===0) return;
   const p=curPeriod();
   if(!p){ paths.attr('fill','#ccc'); return; }
-
-  // One-time debug log
-  if(!window._mapDebugLogged) {
-    window._mapDebugLogged=true;
-    const gspKeys=Object.keys(p.byGsp);
-    console.log('byGsp keys:',gspKeys);
-    const featGsps=[];
-    paths.each(d=>featGsps.push(d.properties._gsp));
-    console.log('SVG _gsp values:',featGsps);
-    const sample=gspKeys[0];
-    console.log('Sample',sample,'byFuel:',p.byGsp[sample]?.byFuel,'totalGen:',totalGen(p.byGsp[sample]));
-  }
-
   paths
     .attr('fill', f => {
       const gsp=f.properties._gsp;
@@ -669,7 +656,7 @@ function aggregateB1610(rawB, fuelhh) {
     const bmId=row.bmUnit||'';
     const ngId=row.nationalGridBmUnitId||'';
     const sp=row.settlementPeriod;
-    const qty=+(row.quantity||0);
+    const qty=-(+(row.quantity||0)); // B1610: negative=generation, positive=consumption — invert so generation is positive
     if(!sp) return;
     const ref=bmRef.get(bmId)||bmRef.get(ngId)||bmRef.get(bmId.replace(/^2__/,''))||bmRef.get('T_'+bmId.replace(/^2__/,''))||bmRef.get('E_'+bmId.replace(/^2__/,''));
     if(!ref){unmatchedMW+=Math.abs(qty);return;}
