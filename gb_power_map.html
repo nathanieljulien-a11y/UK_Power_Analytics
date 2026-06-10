@@ -604,13 +604,24 @@ async function loadBMRef(){
   const j=await res.json();
   const arr=j.data||j||[];
   bmRef.clear();
+  const arr=j.data||j||[];
+  bmRef.clear();
   arr.forEach(u=>{
     const ngcId=u.nationalGridBmUnit||'';
     const elxId=u.elexonBmUnit||'';
     const gsp=u.gspGroupId||'';
-    const ft=u.fuelType||''; // null fuelType → skip (2439 units, mostly small embedded with no fuel recorded)
-    if(!ft||!GSP_MAP[gsp]) return; // skip unknowns — they'd all land in 'other' and create noise
-    const e={fuelType:ft,gspGroupId:gsp};
+    const ft=u.fuelType||'';
+    if(!GSP_MAP[gsp]) return;
+
+    // Inclusion strategy based on unit prefix:
+    // T_ (transmission): include all — use OTHER for null fuelType (real plant, just unclassified)
+    // E_ (embedded):     include named fuel only — skip null (unidentifiable distributed gen)
+    // other (2__ etc):   include named fuel only — captures interconnectors + some wind/hydro
+    const isT=elxId.startsWith('T_');
+    const effectiveFt = ft || (isT ? 'OTHER' : '');
+    if(!effectiveFt) return; // skip null non-T units
+
+    const e={fuelType:effectiveFt, gspGroupId:gsp};
     if(ngcId) bmRef.set(ngcId,e);
     if(elxId) bmRef.set(elxId,e);
     if(ngcId){bmRef.set('2__'+ngcId,e);bmRef.set('T_'+ngcId,e);bmRef.set('E_'+ngcId,e);}
