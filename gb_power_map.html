@@ -604,8 +604,6 @@ async function loadBMRef(){
   const j=await res.json();
   const arr=j.data||j||[];
   bmRef.clear();
-  const arr=j.data||j||[];
-  bmRef.clear();
   arr.forEach(u=>{
     const ngcId=u.nationalGridBmUnit||'';
     const elxId=u.elexonBmUnit||'';
