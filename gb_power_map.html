@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>GB Power · Generation Mix</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#eeeeed;color:#111}
+#app{display:grid;grid-template-columns:1fr 300px;grid-template-rows:46px 1fr;width:100vw;height:100vh;min-height:0}
+#hdr{grid-column:1/-1;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid #ddd;background:#fff;gap:6px;overflow-x:auto;overflow-y:hidden;flex-shrink:0}
+#hdr h1{font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;padding-right:8px;border-right:1px solid #e0e0db;flex-shrink:0}
+.tbtn{font-size:11px;padding:3px 8px;border:1px solid #ddd;border-radius:5px;background:transparent;color:#666;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.tbtn:hover{border-color:#aaa;color:#333}
+.tbtn.on{background:#111;color:#fff;border-color:#111}
+.hsep{width:1px;height:16px;background:#e0e0db;flex-shrink:0;margin:0 2px}
+#status{font-size:10px;color:#aaa;white-space:nowrap;display:flex;align-items:center;gap:5px;margin-left:auto;flex-shrink:0}
+#sdot{width:6px;height:6px;border-radius:50%;background:#ccc;flex-shrink:0}
+#sdot.live{background:#1D9E75;animation:pulse 2.5s infinite}
+#sdot.loading{background:#EF9F27}
+#sdot.err{background:#D85A30}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.leg{display:flex;align-items:center;gap:4px;flex-shrink:0;padding-left:8px;border-left:1px solid #e0e0db;margin-left:4px}
+.legbar{width:64px;height:4px;border-radius:2px;background:linear-gradient(to right,#D85A30,#F5C4B3,#ddd,#9FE1CB,#1D9E75)}
+.leglab{font-size:9px;color:#bbb}
+#map-a{position:relative;overflow:hidden;background:#e5e5e3;min-height:0}
+#msvg{position:absolute;inset:0;width:100%;height:100%}
+#lmap{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#e5e5e3;z-index:5;gap:10px;padding:20px;text-align:center}
+#lmap p{font-size:12px;color:#888;max-width:340px;line-height:1.5}
+#lmap .lsub{font-size:10px;color:#bbb;max-width:340px;line-height:1.5;margin-top:4px}
+#prog-wrap{width:200px;height:3px;background:#ddd;border-radius:2px;overflow:hidden;display:none}
+#prog-bar{height:3px;background:#1D9E75;width:0%;transition:width .3s}
+#tip{position:absolute;background:#fff;border:1px solid #ddd;border-radius:7px;padding:8px 11px;font-size:11px;pointer-events:none;display:none;z-index:20;min-width:150px;max-width:200px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+.tn{font-size:11px;font-weight:600;color:#111;margin-bottom:4px}
+.tr{display:flex;justify-content:space-between;gap:8px;color:#888;margin-top:2px;font-size:10px}
+.tv{font-weight:500;color:#111}
+.pos{color:#0F6E56!important}.neg{color:#993C1D!important}
+#sb{border-left:1px solid #ddd;display:flex;flex-direction:column;min-height:0;background:#fff}
+.sbh{padding:9px 12px 7px;border-bottom:1px solid #eee;flex-shrink:0}
+.sbt{font-size:12px;font-weight:600;color:#111}
+.sbsub{font-size:10px;color:#aaa;margin-top:1px}
+#sb-scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 12px;min-height:0}
+.sl{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#bbb;margin:9px 0 4px}
+.sl:first-child{margin-top:0}
+.mg{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:2px}
+.mc{background:#f4f4f1;border-radius:5px;padding:6px 8px}
+.mc.wide{grid-column:1/-1}
+.mlb{font-size:9px;color:#aaa}
+.mv{font-size:13px;font-weight:600;color:#111;font-variant-numeric:tabular-nums;margin-top:1px}
+.mv.sm{font-size:11px;font-weight:500}
+.xr{display:flex;align-items:center;gap:4px;margin-bottom:3px}
+.xn{font-size:9px;color:#555;width:60px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xt{flex:1;height:4px;background:#eee;border-radius:2px;overflow:hidden}
+.xf{height:4px;border-radius:2px;transition:width .25s}
+.xp{font-size:9px;color:#aaa;width:36px;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+.note{font-size:9px;color:#bbb;margin-top:4px;line-height:1.4}
+.itbl{width:100%;border-collapse:collapse;font-size:9px;margin-top:3px}
+.itbl th{color:#bbb;font-weight:600;text-align:left;padding:2px 3px;border-bottom:1px solid #eee}
+.itbl td{color:#555;padding:2px 3px;border-bottom:1px solid #f4f4f1;font-variant-numeric:tabular-nums}
+.itbl td.imp{color:#0F6E56;font-weight:500}
+.itbl td.exp{color:#993C1D;font-weight:500}
+#chart-area{flex-shrink:0;border-top:1px solid #eee;padding:8px 12px 6px;display:none;flex-direction:column;gap:4px}
+.chl{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#ccc;margin-bottom:2px}
+#c-stack-wrap{height:108px}
+#c-stack{width:100%;height:108px}
+#c-bal-wrap{height:52px;margin-top:4px}
+#c-bal{width:100%;height:52px}
+#scrub{flex-shrink:0;border-top:1px solid #ddd;padding:7px 12px 8px;background:#fff;display:none;flex-direction:column;gap:3px}
+.srow{display:flex;align-items:center;gap:7px}
+#pbtn{width:26px;height:26px;border:1px solid #ddd;border-radius:50%;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;line-height:1}
+#pbtn:hover{background:#f5f5f3}
+#swrap{flex:1;position:relative;min-width:0}
+#spark{width:100%;height:30px;display:block}
+#ndl{position:absolute;top:0;height:30px;width:1.5px;background:#333;opacity:.2;pointer-events:none}
+#sld{width:100%;cursor:pointer;accent-color:#378ADD;display:block;margin-top:2px}
+#stime{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:#111;min-width:42px;white-space:nowrap}
+#sof{font-size:9px;color:#aaa;margin-top:1px;white-space:nowrap}
+#lag-banner{background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:7px 10px;font-size:10px;color:#7a5800;margin-bottom:8px;line-height:1.4;display:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hdr">
+    <h1>GB Power · Generation Mix</h1>
+    <button class="tbtn on" onclick="setWin('recent')"    id="t-recent">Recent</button>
+    <button class="tbtn"    onclick="setWin('week')"      id="t-week">7 days</button>
+    <button class="tbtn"    onclick="setWin('month')"     id="t-month">30 days</button>
+    <div class="hsep"></div>
+    <button class="tbtn"    onclick="setWin('winter')"    id="t-winter">Winter</button>
+    <button class="tbtn"    onclick="setWin('spring')"    id="t-spring">Spring</button>
+    <button class="tbtn"    onclick="setWin('summer')"    id="t-summer">Summer</button>
+    <button class="tbtn"    onclick="setWin('autumn')"    id="t-autumn">Autumn</button>
+    <div id="status"><div id="sdot"></div><span id="stxt">—</span></div>
+    <div class="leg"><span class="leglab">deficit</span><div class="legbar"></div><span class="leglab">surplus</span></div>
+  </div>
+
+  <div id="map-a">
+    <div id="lmap">
+      <p id="lmsg">Loading…</p>
+      <p class="lsub" id="lsub"></p>
+      <div id="prog-wrap"><div id="prog-bar"></div></div>
+    </div>
+    <div id="tip">
+      <div class="tn"  id="tt-name"></div>
+      <div class="tr"><span>Generation</span><span class="tv"       id="tt-gen"></span></div>
+      <div class="tr"><span>Demand</span>    <span class="tv"       id="tt-dem"></span></div>
+      <div class="tr"><span>Net balance</span><span class="tv"      id="tt-net"></span></div>
+      <div class="tr"><span>Top fuel</span>  <span class="tv"       id="tt-fuel"></span></div>
+    </div>
+    <svg id="msvg" role="img" aria-label="GB regional generation mix and net balance map"></svg>
+  </div>
+
+  <div id="sb">
+    <div class="sbh">
+      <div class="sbt"   id="sb-title">GB overview</div>
+      <div class="sbsub" id="sb-sub">Click a region to inspect</div>
+    </div>
+    <div id="sb-scroll">
+      <div id="lag-banner"></div>
+      <div class="sl">Balance</div>
+      <div class="mg">
+        <div class="mc"><div class="mlb">Generation</div><div class="mv"       id="s-gen">—</div></div>
+        <div class="mc"><div class="mlb">Demand</div>    <div class="mv"       id="s-dem">—</div></div>
+        <div class="mc wide"><div class="mlb">Net balance</div><div class="mv" id="s-net">—</div></div>
+      </div>
+      <div class="sl">Generation mix</div>
+      <div id="s-mix"></div>
+      <div id="s-note" class="note" style="display:none">* Other includes grid-scale BESS (battery storage) — not yet separately classified in Elexon's fuel taxonomy.</div>
+      <div id="s-ic-block" style="display:none">
+        <div class="sl">Interconnectors</div>
+        <div id="s-ictbl"></div>
+        <div class="note" style="margin-top:4px">+ve = import · −ve = export · gCO₂/kWh is indicative by source country.</div>
+      </div>
+    </div>
+    <div id="chart-area">
+      <div class="chl">Generation by source (MW)</div>
+      <div id="c-stack-wrap"><canvas id="c-stack"></canvas></div>
+      <div class="chl" style="margin-top:2px">Net balance (MW)</div>
+      <div id="c-bal-wrap"><canvas id="c-bal"></canvas></div>
+    </div>
+    <div id="scrub">
+      <div class="srow">
+        <div style="min-width:42px;flex-shrink:0"><div id="stime">—</div><div id="sof">—</div></div>
+        <button id="pbtn" onclick="togglePlay()" aria-label="Play/pause">&#9654;</button>
+        <div id="swrap">
+          <canvas id="spark"></canvas>
+          <div id="ndl"></div>
+          <input type="range" min="0" max="47" value="0" step="1" id="sld" oninput="onSlide(this.value)">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════
+const ELX      = 'https://data.elexon.co.uk/bmrs/api/v1';
+const NESO_GEO = 'https://api.neso.energy/dataset/0e377f16-95e9-4c15-a1fc-49e06a39cfa0/resource/e96db306-aaa8-45be-aecd-65b34d38923a/download/dno_license_areas_20200506.geojson';
+
+// B1610 has a 5 working-day lag. Calculate the most recent available date.
+function mostRecentB1610Date() {
+  const d = new Date();
+  // Step back until we have 5 working days of lag
+  let workdays = 0;
+  while (workdays < 5) {
+    d.setUTCDate(d.getUTCDate() - 1);
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) workdays++;
+  }
+  return toDateStr(d);
+}
+
+// Fuel stack order bottom → top (ps_chg as negative at bottom)
+const STACK_ORDER = ['ic','nuclear','coal','biomass','hydro','wind','solar','gas','oil','other','ps_dis'];
+const FUEL_LABELS = {
+  ic:'imp/exp', nuclear:'nuclear', coal:'coal', biomass:'biomass',
+  hydro:'hydro', wind:'wind', solar:'solar', gas:'gas', oil:'oil',
+  other:'other*', ps_dis:'PS disch.', ps_chg:'PS charge'
+};
+const FCOL = {
+  ic:'#7B68EE', nuclear:'#5DCAA5', coal:'#3a2010', biomass:'#639922',
+  hydro:'#185FA5', wind:'#378ADD', solar:'#EF9F27', gas:'#D85A30',
+  oil:'#8B2500', other:'#B4B2A9', ps_dis:'#9B59B6', ps_chg:'#CE93D8'
+};
+
+// Elexon fuelType → canonical fuel key
+const FUEL_MAP = {
+  WIND:'wind', SOLAR:'solar', NUCLEAR:'nuclear', NPSHYD:'hydro',
+  BIOMASS:'biomass', CCGT:'gas', OCGT:'gas', OIL:'oil', COAL:'coal',
+  OTHER:'other', PS:'ps',
+  INTFR:'ic', INTIFA2:'ic', INTELEC:'ic', INTNED:'ic',
+  INTIRL:'ic', INTEW:'ic', INTMRS:'ic', NSL:'ic', VIKL:'ic',
+  MOYLE:'ic', GREENLINK:'ic'
+};
+
+const IC_META = {
+  INTFR:    {name:'IFA (France)',      ci:60},
+  INTIFA2:  {name:'IFA2 (France)',     ci:60},
+  INTELEC:  {name:'ElecLink (France)', ci:60},
+  INTNED:   {name:'BritNed (NL)',      ci:340},
+  INTIRL:   {name:'E-W (Ireland)',     ci:290},
+  INTEW:    {name:'E-W (Ireland)',     ci:290},
+  INTMRS:   {name:'Nemo (Belgium)',    ci:145},
+  NSL:      {name:'NSL (Norway)',      ci:26},
+  VIKL:     {name:'VikingLink (DK)',   ci:175},
+  MOYLE:    {name:'Moyle (N.Irl)',     ci:290},
+  GREENLINK:{name:'Greenlink (IE)',    ci:290},
+};
+
+const GSP_MAP = {
+  '_A':{name:'East England',          dnoId:10},
+  '_B':{name:'East Midlands',         dnoId:9},
+  '_C':{name:'London',                dnoId:13},
+  '_D':{name:'N.Wales & Merseyside',  dnoId:6},
+  '_E':{name:'West Midlands',         dnoId:8},
+  '_F':{name:'North East England',    dnoId:4},
+  '_G':{name:'North West England',    dnoId:3},
+  '_H':{name:'South East England',    dnoId:14},
+  '_J':{name:'South England',         dnoId:12},
+  '_K':{name:'South Scotland',        dnoId:2},
+  '_L':{name:'South West England',    dnoId:11},
+  '_M':{name:'Yorkshire',             dnoId:5},
+  '_N':{name:'South Wales',           dnoId:7},
+  '_P':{name:'North Scotland',        dnoId:1},
+};
+
+// DNO name fragments for matching NESO GeoJSON features
+const DNO_NAME_MAP = {
+  1: ['north of scotland','sse hydro','hydro area'],
+  2: ['south of scotland','sp transmission south scot','scottishpower manweb south'],
+  3: ['north west england','electricity north west','enwl'],
+  4: ['north east england','northern powergrid northeast','npg north east','northern electric'],
+  5: ['yorkshire','northern powergrid yorkshire','npg yorkshire'],
+  6: ['north wales','merseyside','sp manweb','manweb'],
+  7: ['south wales','western power south wales','wpd south wales'],
+  8: ['west midlands','western power west midlands','wpd west midlands'],
+  9: ['east midlands','western power east midlands','wpd east midlands'],
+  10:['east of england','eastern england','ukpn eastern','eastern electric'],
+  11:['south west','western power south west','wpd south west'],
+  12:['south of england','sse south','southern electric','sse southern'],
+  13:['london','ukpn london'],
+  14:['south east england','ukpn south east'],
+};
+
+const SEASONS  = {winter:{months:[11,12,1,2]},spring:{months:[3,4,5]},summer:{months:[6,7,8]},autumn:{months:[9,10]}};
+const ALL_WINS = ['recent','week','month','winter','spring','summer','autumn'];
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let win      = 'recent';
+let selGsp   = null;
+let bmRef    = new Map();   // bmUnitId → {fuelType, gspGroupId}
+let periods  = [];          // [{sp, label, byGsp:{gsp:{byFuel:{},demand}}, icSnap:[]}]
+let icDetail = [];
+let spIdx    = 0;
+let playing  = false, playTimer = null, refreshTmr = null;
+let sparkChart = null, stackChart = null, balChart = null;
+let geoCache = null;
+
+// ═══════════════════════════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════════════════════════
+const svgEl = document.getElementById('msvg');
+const mapEl = document.getElementById('map-a');
+const tipEl = document.getElementById('tip');
+const svg   = d3.select(svgEl);
+let proj    = d3.geoMercator();
+let pFn     = d3.geoPath().projection(proj);
+
+const balCol = d3.scaleLinear()
+  .domain([-3000,-500,0,500,3000])
+  .range(['#D85A30','#F5C4B3','#D3D1C7','#9FE1CB','#1D9E75']).clamp(true);
+
+async function loadGeo() {
+  if (geoCache) return geoCache;
+  let geo;
+  try {
+    const res = await fetch(NESO_GEO);
+    if (!res.ok) throw new Error('GeoJSON '+res.status);
+    geo = await res.json();
+    // Match each feature to a dnoId
+    geo.features.forEach(f => {
+      const raw = f.properties.Name||f.properties.name||f.properties.LongName||'';
+      const nm  = raw.toLowerCase();
+      for (const [id, frags] of Object.entries(DNO_NAME_MAP)) {
+        if (frags.some(frag => nm.includes(frag))) {
+          f.properties._dnoId  = +id;
+          f.properties._name   = GSP_MAP[Object.entries(GSP_MAP).find(([,v])=>v.dnoId===+id)?.[0]]?.name || raw;
+          break;
+        }
+      }
+    });
+    // Filter to only matched features
+    geo.features = geo.features.filter(f => f.properties._dnoId);
+    console.log(`GeoJSON loaded: ${geo.features.length} DNO regions matched`);
+  } catch(e) {
+    console.warn('NESO GeoJSON failed, using fallback', e);
+    geo = buildFallbackGeo();
+  }
+  geoCache = geo;
+  return geo;
+}
+
+function buildFallbackGeo() {
+  // Approximate polygon per DNO region using known boundary points
+  const regions = [
+    {id:1, name:'North Scotland',        coords:[[-7.0,57.5],[-6.0,58.7],[-3.5,58.7],[-1.8,57.5],[-3.0,56.5],[-4.5,56.0],[-5.5,57.0],[-7.0,57.5]]},
+    {id:2, name:'South Scotland',        coords:[[-5.0,55.9],[-3.0,56.5],[-1.8,57.5],[-1.8,55.0],[-3.0,55.0],[-5.0,55.9]]},
+    {id:3, name:'North West England',    coords:[[-3.6,55.0],[-3.0,55.0],[-2.0,54.5],[-2.0,53.2],[-3.2,53.4],[-3.6,54.0],[-3.6,55.0]]},
+    {id:4, name:'North East England',    coords:[[-2.0,55.8],[-1.2,55.8],[-0.1,54.1],[-1.2,54.5],[-2.0,54.5],[-2.0,55.8]]},
+    {id:5, name:'Yorkshire',             coords:[[-2.0,54.5],[-0.1,54.1],[0.1,53.6],[-1.6,53.3],[-2.0,53.2],[-2.6,54.1],[-2.0,54.5]]},
+    {id:6, name:'N.Wales & Merseyside',  coords:[[-3.2,53.4],[-2.0,53.2],[-2.6,52.9],[-3.2,53.0],[-3.2,53.4]]},
+    {id:7, name:'South Wales',           coords:[[-5.2,51.6],[-3.1,51.3],[-2.6,51.8],[-3.2,52.1],[-4.2,52.8],[-5.2,51.6]]},
+    {id:8, name:'West Midlands',         coords:[[-3.2,52.1],[-2.6,51.8],[-1.2,52.0],[-1.8,52.9],[-3.1,52.9],[-3.2,52.1]]},
+    {id:9, name:'East Midlands',         coords:[[-1.6,53.3],[0.1,53.3],[0.3,52.8],[-0.3,52.5],[-1.3,52.0],[-1.8,52.9],[-1.6,53.3]]},
+    {id:10,name:'East England',          coords:[[0.1,53.6],[1.7,52.7],[1.3,51.9],[-0.5,51.6],[-0.7,51.9],[-0.3,52.5],[0.3,52.8],[0.1,53.3],[0.1,53.6]]},
+    {id:11,name:'South West England',    coords:[[-5.7,50.1],[-3.5,50.7],[-2.0,50.6],[-1.5,51.4],[-2.6,51.8],[-3.1,51.3],[-5.1,51.6],[-5.7,50.1]]},
+    {id:12,name:'South England',         coords:[[-1.5,51.4],[-2.0,50.6],[-1.7,50.8],[-0.8,50.7],[0.2,50.7],[-0.5,51.6],[-1.5,51.4]]},
+    {id:13,name:'London',                coords:[[-0.5,51.6],[0.2,51.6],[0.2,51.3],[-0.1,51.3],[-0.5,51.3],[-0.5,51.6]]},
+    {id:14,name:'South East England',    coords:[[0.2,51.6],[1.4,51.4],[1.4,51.1],[0.2,50.7],[-0.8,50.7],[0.2,51.3],[0.2,51.6]]},
+  ];
+  const features = regions.map(r => {
+    const coords = r.coords.map(c=>[...c]);
+    coords.push(coords[0]);
+    const f = {type:'Feature',properties:{_dnoId:r.id,_name:r.name},geometry:{type:'Polygon',coordinates:[coords]}};
+    return f;
+  });
+  return {type:'FeatureCollection',features};
+}
+
+function fitMap(geo) {
+  const w = mapEl.clientWidth, h = mapEl.clientHeight;
+  if (w < 10 || h < 10) { setTimeout(()=>fitMap(geo), 80); return; }
+  // Validate projection won't produce NaN — fitExtent needs valid numeric bounds
+  if (!isFinite(w) || !isFinite(h)) return;
+  try {
+    proj.fitExtent([[14,14],[w-14,h-14]], geo);
+    // Check projection output is valid by testing a known GB coordinate
+    const testPt = proj([-3, 55]);
+    if (!testPt || !isFinite(testPt[0]) || !isFinite(testPt[1])) {
+      throw new Error('Projection returned NaN for test point');
+    }
+    pFn = d3.geoPath().projection(proj);
+    svg.attr('viewBox', `0 0 ${w} ${h}`);
+    redrawPaths(geo);
+  } catch(e) {
+    console.warn('fitMap failed, retrying', e);
+    setTimeout(()=>fitMap(geo), 100);
+  }
+}
+
+function redrawPaths(geo) {
+  svg.selectAll('path.rgn').remove();
+  svg.selectAll('path.rgn')
+    .data(geo.features, d => d.properties._dnoId)
+    .join('path').attr('class','rgn')
+    .attr('d', d => {
+      try { const p = pFn(d); return (p && p.indexOf('NaN')<0) ? p : null; }
+      catch(e) { return null; }
+    })
+    .attr('stroke','#fafaf8').attr('stroke-width','0.7').attr('cursor','pointer')
+    .on('click', (_,d) => {
+      const gsp = dnoToGsp(d.properties._dnoId);
+      selGsp = selGsp===gsp ? null : gsp;
+      renderMap(); renderSidebar();
+    })
+    .on('mousemove', showTip)
+    .on('mouseleave', () => { tipEl.style.display='none'; });
+}
+
+function dnoToGsp(dnoId) {
+  return Object.entries(GSP_MAP).find(([,v])=>v.dnoId===dnoId)?.[0] ?? null;
+}
+
+function renderMap() {
+  const pd = curPeriod();
+  svg.selectAll('path.rgn')
+    .attr('fill', f => {
+      const gsp = dnoToGsp(f.properties._dnoId);
+      if (!gsp || !pd) return '#ccc';
+      const r   = pd.byGsp[gsp];
+      if (!r) return '#ccc';
+      const net = totalGen(r) - (r.demand||0);
+      return balCol(net);
+    })
+    .attr('stroke-width', f => dnoToGsp(f.properties._dnoId)===selGsp ? 2 : 0.7)
+    .attr('stroke',       f => dnoToGsp(f.properties._dnoId)===selGsp ? '#111' : '#fafaf8');
+}
+
+function curPeriod()  { return periods.length ? periods[Math.min(spIdx,periods.length-1)] : null; }
+
+function totalGen(r) {
+  if (!r?.byFuel) return 0;
+  return Object.entries(r.byFuel).reduce((s,[k,v]) => k==='ps_chg' ? s : s+Math.max(0,v), 0);
+}
+
+function showTip(ev, feat) {
+  const gsp = dnoToGsp(feat.properties._dnoId);
+  const pd  = curPeriod();
+  if (!gsp||!pd) return;
+  const r   = pd.byGsp[gsp]; if (!r) return;
+  const gen = totalGen(r), dem = r.demand||0, net = gen-dem;
+  const rc  = mapEl.getBoundingClientRect();
+  document.getElementById('tt-name').textContent = feat.properties._name||gsp;
+  document.getElementById('tt-gen').textContent  = fmtMW(gen);
+  document.getElementById('tt-dem').textContent  = fmtMW(dem);
+  const ne  = document.getElementById('tt-net');
+  ne.textContent = (net>=0?'+':'')+fmtMW(net);
+  ne.className   = 'tv '+(net>=0?'pos':'neg');
+  document.getElementById('tt-fuel').textContent = topFuel(r.byFuel);
+  const x = Math.min(ev.clientX-rc.left+10, mapEl.clientWidth-165);
+  const y = Math.max(4, ev.clientY-rc.top-10);
+  tipEl.style.cssText = `display:block;left:${x}px;top:${y}px`;
+}
+
+function topFuel(byFuel) {
+  if (!byFuel) return '—';
+  const top = Object.entries(byFuel).filter(([k])=>k!=='ps_chg'&&k!=='ic').sort((a,b)=>b[1]-a[1])[0];
+  return top ? `${FUEL_LABELS[top[0]]||top[0]} ${fmtMW(top[1])}` : '—';
+}
+
+function fmtMW(mw) {
+  const abs=Math.abs(mw);
+  if(abs>=1000) return (mw/1000).toFixed(1)+' GW';
+  return Math.round(mw)+' MW';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════════════════════════
+function renderSidebar() {
+  const pd     = curPeriod();
+  const isReg  = selGsp!=null;
+  const name   = isReg ? (GSP_MAP[selGsp]?.name||selGsp) : 'GB overview';
+  document.getElementById('sb-title').textContent = name;
+  document.getElementById('sb-sub').textContent   = isReg ? 'Click map to deselect' : 'Click a region to inspect';
+
+  let gen=0,dem=0,byFuel={};
+  if (isReg && pd?.byGsp[selGsp]) {
+    const r=pd.byGsp[selGsp]; gen=totalGen(r); dem=r.demand||0; byFuel={...r.byFuel};
+  } else if (!isReg && pd) {
+    Object.values(pd.byGsp).forEach(r=>{
+      gen+=totalGen(r); dem+=r.demand||0;
+      Object.entries(r.byFuel||{}).forEach(([k,v])=>{ byFuel[k]=(byFuel[k]||0)+v; });
+    });
+  }
+
+  const net=gen-dem;
+  document.getElementById('s-gen').textContent=fmtMW(gen);
+  document.getElementById('s-dem').textContent=fmtMW(dem);
+  const sn=document.getElementById('s-net');
+  sn.textContent=(net>=0?'+':'')+fmtMW(net); sn.className='mv '+(net>=0?'pos':'neg');
+
+  renderMixBars(byFuel);
+
+  document.getElementById('s-note').style.display = (byFuel['other']||0)>50 ? 'block':'none';
+
+  if (!isReg && icDetail.length) {
+    document.getElementById('s-ic-block').style.display='block';
+    renderICTable(icDetail);
+  } else {
+    document.getElementById('s-ic-block').style.display='none';
+  }
+
+  const hasTS = periods.length>1;
+  document.getElementById('chart-area').style.display = hasTS?'flex':'none';
+  if (hasTS) renderCharts(isReg?selGsp:null);
+}
+
+function renderMixBars(byFuel) {
+  const totalMW = Object.entries(byFuel).reduce((s,[k,v])=>k==='ps_chg'?s:s+Math.max(0,v),0)||1;
+  const order   = [...STACK_ORDER,'ps_chg'];
+  const rows    = order.map(k=>({k,v:byFuel[k]||0})).filter(x=>Math.abs(x.v)>5);
+  document.getElementById('s-mix').innerHTML = rows.map(({k,v})=>{
+    const pct = Math.abs(v)/totalMW*100;
+    const bar = Math.min(100,pct);
+    return `<div class="xr">
+      <span class="xn" title="${FUEL_LABELS[k]||k}">${FUEL_LABELS[k]||k}</span>
+      <div class="xt"><div class="xf" style="width:${bar.toFixed(0)}%;background:${FCOL[k]||'#aaa'}"></div></div>
+      <span class="xp">${fmtMW(v)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderICTable(detail) {
+  const rows = detail.filter(x=>Math.abs(x.mw)>5).sort((a,b)=>b.mw-a.mw);
+  document.getElementById('s-ictbl').innerHTML = rows.length
+    ? `<table class="itbl"><tr><th>Link</th><th>MW</th><th>gCO₂</th></tr>${
+        rows.map(r=>`<tr><td>${r.name}</td><td class="${r.mw>=0?'imp':'exp'}">${r.mw>=0?'+':''}${Math.round(r.mw)}</td><td>${r.ci}</td></tr>`).join('')
+      }</table>`
+    : '<p class="note">No interconnector data for this period.</p>';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHARTS
+// ═══════════════════════════════════════════════════════════════
+function renderCharts(gsp) {
+  const maxPts = 96;
+  const step   = Math.max(1, Math.floor(periods.length/maxPts));
+  const S      = periods.filter((_,i)=>i%step===0);
+  const labels = S.map(p=>p.label||`SP${p.sp}`);
+
+  function srcFor(p) {
+    if (gsp) return p.byGsp[gsp]||{byFuel:{},demand:0};
+    // aggregate national
+    const bf={},dem={d:0};
+    Object.values(p.byGsp).forEach(r=>{ dem.d+=r.demand||0; Object.entries(r.byFuel||{}).forEach(([k,v])=>{bf[k]=(bf[k]||0)+v;}); });
+    return{byFuel:bf,demand:dem.d};
+  }
+
+  const fuelSeries={};
+  S.forEach(p=>{
+    const src=srcFor(p);
+    [...STACK_ORDER,'ps_chg'].forEach(k=>{
+      if(!fuelSeries[k]) fuelSeries[k]=[];
+      fuelSeries[k].push(k==='ps_chg' ? Math.min(0,Math.round(src.byFuel[k]||0)) : Math.max(0,Math.round(src.byFuel[k]||0)));
+    });
+  });
+
+  const stackDs = [...STACK_ORDER,'ps_chg'].map(k=>({
+    label: FUEL_LABELS[k]||k,
+    data:  fuelSeries[k]||[],
+    backgroundColor: FCOL[k]+'bb',
+    borderColor:     FCOL[k],
+    borderWidth:0.4, fill:true, pointRadius:0, tension:0.3
+  })).filter(ds=>ds.data.some(v=>Math.abs(v)>10));
+
+  if(stackChart) stackChart.destroy();
+  stackChart = new Chart(document.getElementById('c-stack'),{
+    type:'line', data:{labels,datasets:stackDs},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true,position:'bottom',labels:{
+          boxWidth:7,boxHeight:7,font:{size:8},padding:3,color:'#666',
+          generateLabels:chart=>chart.data.datasets.map((ds,i)=>({
+            text:ds.label,fillStyle:ds.backgroundColor,strokeStyle:ds.borderColor,
+            lineWidth:0.5,hidden:false,datasetIndex:i
+          }))
+        }},
+        tooltip:{mode:'index',intersect:false,callbacks:{
+          label:c=>`${c.dataset.label}: ${c.raw>=0?'':'-'}${Math.abs(c.raw).toLocaleString()} MW`
+        }}
+      },
+      scales:{
+        x:{display:false},
+        y:{stacked:true,ticks:{font:{size:8},color:'#aaa',callback:v=>Math.abs(v)>=1000?(v/1000).toFixed(0)+'GW':v+'MW'},
+          grid:{color:'rgba(0,0,0,.04)'},border:{display:false}}
+      },
+      animation:{duration:150}
+    }
+  });
+
+  const balVals = S.map(p=>{ const s=srcFor(p); return Math.round(totalGen(s)-s.demand); });
+  if(balChart) balChart.destroy();
+  balChart = new Chart(document.getElementById('c-bal'),{
+    type:'line',
+    data:{labels,datasets:[{data:balVals,borderColor:'#378ADD',borderWidth:1.5,pointRadius:0,
+      fill:{target:'origin',above:'rgba(29,158,117,.08)',below:'rgba(216,90,48,.08)'},tension:0.4}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>(c.raw>=0?'+':'')+c.raw.toLocaleString()+' MW'},displayColors:false}},
+      scales:{x:{display:false},y:{ticks:{font:{size:8},color:'#aaa',callback:v=>Math.abs(v)>=1000?(v/1000).toFixed(0)+'GW':v+'MW'},
+        grid:{color:'rgba(0,0,0,.04)'},border:{display:false}}},
+      animation:{duration:150}
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SPARKLINE / SCRUB
+// ═══════════════════════════════════════════════════════════════
+function drawSpark() {
+  if(!periods.length) return;
+  const vals=periods.map(p=>{
+    let g=0,d=0;
+    Object.values(p.byGsp).forEach(r=>{g+=totalGen(r);d+=r.demand||0;});
+    return Math.round(g-d);
+  });
+  if(sparkChart) sparkChart.destroy();
+  sparkChart=new Chart(document.getElementById('spark'),{
+    type:'line',
+    data:{labels:periods.map(p=>p.label||''),datasets:[{data:vals,borderColor:'rgba(55,138,221,.5)',
+      borderWidth:1.5,pointRadius:0,fill:{target:'origin',above:'rgba(29,158,117,.07)',below:'rgba(216,90,48,.07)'},tension:0.4}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{x:{display:false},y:{display:false,grace:'10%'}},animation:{duration:0}}
+  });
+}
+
+function updateScrubUI() {
+  const p=periods[spIdx]; if(!p) return;
+  document.getElementById('stime').textContent=p.label||`SP${p.sp}`;
+  document.getElementById('sof').textContent=`${spIdx+1}/${periods.length}`;
+  document.getElementById('sld').value=spIdx;
+  document.getElementById('ndl').style.left=((spIdx/Math.max(periods.length-1,1))*100)+'%';
+}
+
+function onSlide(v) { spIdx=+v; renderMap(); renderSidebar(); updateScrubUI(); }
+
+function togglePlay() {
+  playing=!playing;
+  const btn=document.getElementById('pbtn');
+  if(playing){
+    btn.innerHTML='&#9646;&#9646;'; spIdx=0;
+    playTimer=setInterval(()=>{
+      spIdx=(spIdx+1)%periods.length;
+      renderMap(); renderSidebar(); updateScrubUI();
+      if(spIdx===periods.length-1){playing=false;btn.innerHTML='&#9654;';clearInterval(playTimer);}
+    },280);
+  } else { btn.innerHTML='&#9654;'; clearInterval(playTimer); }
+}
+
+function showScrub(show) {
+  document.getElementById('scrub').style.display=show?'flex':'none';
+  if(show) document.getElementById('sld').max=Math.max(0,periods.length-1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STATUS
+// ═══════════════════════════════════════════════════════════════
+function setStatus(cls,txt){ document.getElementById('sdot').className=cls; document.getElementById('stxt').textContent=txt; }
+function setProgress(pct){ document.getElementById('prog-bar').style.width=pct+'%'; }
+function showLoader(msg,sub='',prog=false){
+  document.getElementById('lmap').style.display='flex';
+  document.getElementById('lmsg').textContent=msg;
+  document.getElementById('lsub').textContent=sub;
+  document.getElementById('prog-wrap').style.display=prog?'block':'none';
+  setProgress(0);
+}
+function hideLoader(){ document.getElementById('lmap').style.display='none'; }
+
+// ═══════════════════════════════════════════════════════════════
+// BM UNIT REFERENCE
+// ═══════════════════════════════════════════════════════════════
+async function loadBMRef() {
+  setStatus('loading','Loading BM unit reference…');
+  const res=await fetch(`${ELX}/reference/bmunits/all?format=json`,{headers:{Accept:'application/json'}});
+  if(!res.ok) throw new Error('BMRef HTTP '+res.status);
+  const j=await res.json();
+  bmRef.clear();
+  const arr = j.data||j||[];
+  arr.forEach(u=>{
+    const id=u.bmUnitId||u.bmUnit;
+    if(!id) return;
+    // Normalise GSP group: ensure it starts with '_'
+    let gsp = u.gspGroupId||u.gspGroup||u.gsP_GROUP_ID||u.gspgroup||'';
+    if(gsp && !gsp.startsWith('_')) gsp='_'+gsp;
+    bmRef.set(id,{fuelType:u.fuelType||u.fueltype||'OTHER', gspGroupId:gsp});
+  });
+  return bmRef.size;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// B1610 FETCH — stream endpoint with from/to datetime params
+// Note: 5 working day lag. Use mostRecentB1610Date().
+// ═══════════════════════════════════════════════════════════════
+async function fetchB1610(dateStr) {
+  // B1610/stream uses 'from' and 'to' ISO datetime params
+  const from=`${dateStr}T00:00Z`, to=`${dateStr}T23:59Z`;
+  const url=`${ELX}/datasets/B1610/stream?from=${from}&to=${to}&format=json`;
+  const res=await fetch(url,{headers:{Accept:'application/json'}});
+  if(!res.ok) throw new Error(`B1610 HTTP ${res.status} for ${dateStr}`);
+  const j=await res.json();
+  return j.data||j||[];
+}
+
+async function fetchITSDO(dateStr) {
+  const from=`${dateStr}T00:00Z`, to=`${dateStr}T23:59Z`;
+  const url=`${ELX}/datasets/ITSDO?from=${from}&to=${to}&format=json`;
+  const res=await fetch(url,{headers:{Accept:'application/json'}});
+  if(!res.ok){ console.warn('ITSDO',res.status); return []; }
+  const j=await res.json();
+  return j.data||j||[];
+}
+
+async function fetchFUELHH(dateStr) {
+  const from=`${dateStr}T00:00Z`, to=`${dateStr}T23:59Z`;
+  const url=`${ELX}/datasets/FUELHH?from=${from}&to=${to}&format=json`;
+  const res=await fetch(url,{headers:{Accept:'application/json'}});
+  if(!res.ok){ console.warn('FUELHH',res.status); return []; }
+  const j=await res.json();
+  return j.data||j||[];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AGGREGATE B1610 → PERIODS
+// ═══════════════════════════════════════════════════════════════
+function aggregateB1610(rawB, demRows, fuelhh) {
+  // Build {sp|gsp|fuel} → mw
+  const byKey={};
+  rawB.forEach(row=>{
+    const bmId=row.bmUnitId||row.nationalGridBmUnit||row.bmUnit||'';
+    const sp=row.settlementPeriod||row.period;
+    const qty=+(row.quantity||row.generation||0);
+    if(!bmId||!sp) return;
+    const ref=bmRef.get(bmId);
+    if(!ref) return;
+    const ft=ref.fuelType||'OTHER';
+    let gsp=ref.gspGroupId||'';
+    if(!GSP_MAP[gsp]) return;
+    let fuel;
+    if(ft==='PS') {
+      fuel=qty>=0?'ps_dis':'ps_chg';
+    } else {
+      const mapped=FUEL_MAP[ft];
+      if(!mapped) return;
+      fuel=mapped; // 'ic' stays as 'ic' — handled below
+    }
+    const key=`${sp}|${gsp}|${fuel}`;
+    byKey[key]=(byKey[key]||0)+qty;
+  });
+
+  // Demand by {sp|gsp}
+  const demKey={};
+  demRows.forEach(row=>{
+    const sp=row.settlementPeriod||row.period;
+    let gsp=row.gspGroupId||row.gspGroup||row.gsP_GROUP_ID||'';
+    if(gsp&&!gsp.startsWith('_')) gsp='_'+gsp;
+    const mw=+(row.initialTransmissionSystemDemandOutturn||row.demand||row.quantity||0);
+    if(sp&&GSP_MAP[gsp]) demKey[`${sp}|${gsp}`]=(demKey[`${sp}|${gsp}`]||0)+mw;
+  });
+
+  // IC detail from FUELHH
+  const icBySpType={};
+  fuelhh.forEach(row=>{
+    const sp=row.settlementPeriod||row.period;
+    const ft=row.fuelType||'';
+    const mw=+(row.generation||row.quantity||0);
+    if(IC_META[ft]&&sp) icBySpType[`${sp}|${ft}`]=(icBySpType[`${sp}|${ft}`]||0)+mw;
+  });
+
+  const allSps=[...new Set(rawB.map(r=>r.settlementPeriod||r.period).filter(Boolean))].sort((a,b)=>+a-+b);
+
+  return allSps.map(sp=>{
+    const byGsp={};
+    Object.keys(GSP_MAP).forEach(gsp=>{
+      const byFuel={};
+      ['ps_dis','ps_chg','nuclear','coal','biomass','hydro','wind','solar','gas','oil','other','ic'].forEach(fuel=>{
+        const v=byKey[`${sp}|${gsp}|${fuel}`]||0;
+        if(Math.abs(v)>0) byFuel[fuel]=v;
+      });
+      byGsp[gsp]={byFuel, demand:demKey[`${sp}|${gsp}`]||0};
+    });
+    const icSnap=Object.entries(IC_META).map(([k,meta])=>({
+      key:k, name:meta.name, ci:meta.ci, mw:icBySpType[`${sp}|${k}`]||0
+    })).filter(x=>Math.abs(x.mw)>0);
+    const hh=Math.floor((+sp-1)/2);
+    const mm=(+sp-1)%2===0?'00':'30';
+    const label=`${String(hh).padStart(2,'0')}:${mm}`;
+    return{sp:+sp, label, byGsp, icSnap};
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LONGER WINDOW — AGPT downsampled
+// ═══════════════════════════════════════════════════════════════
+async function fetchAGPTRange(fromISO,toISO) {
+  const url=`${ELX}/generation/actual/per-type?from=${fromISO}&to=${toISO}&format=json`;
+  const res=await fetch(url,{headers:{Accept:'application/json'}});
+  if(!res.ok) throw new Error('AGPT '+res.status);
+  const j=await res.json();
+  return j.data||j||[];
+}
+
+function buildPeriodsFromAGPT(rows) {
+  const byTime={};
+  rows.forEach(r=>{
+    const t=r.startTime||r.publishTime||r.from||'';
+    const ft=r.psrType||r.fuelType||r.powerSystemResourceType||'';
+    const mw=+(r.quantity||r.generation||0);
+    if(!t) return;
+    if(!byTime[t]) byTime[t]={byFuel:{},demand:0,label:t.slice(5,16).replace('T',' ')};
+    let fuel;
+    if(ft==='PS') fuel=mw>=0?'ps_dis':'ps_chg';
+    else { fuel=FUEL_MAP[ft]||'other'; }
+    byTime[t].byFuel[fuel]=(byTime[t].byFuel[fuel]||0)+mw;
+  });
+  // National only — wrap under synthetic '_NAT' GSP
+  return Object.values(byTime).sort((a,b)=>a.label.localeCompare(b.label)).map(d=>({
+    sp:0, label:d.label,
+    byGsp:{'_NAT':{byFuel:d.byFuel,demand:d.demand}},
+    icSnap:[]
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SEASON RANGE
+// ═══════════════════════════════════════════════════════════════
+function seasonRange(name){
+  const now=new Date(),months=SEASONS[name].months;
+  if(name==='winter'){
+    const y=now.getFullYear(),endFeb=new Date(Date.UTC(y,1,28,23,30));
+    return now>endFeb
+      ?{from:new Date(Date.UTC(y-1,10,1)).toISOString().slice(0,16)+'Z',to:endFeb.toISOString().slice(0,16)+'Z'}
+      :{from:new Date(Date.UTC(y-2,10,1)).toISOString().slice(0,16)+'Z',to:new Date(Date.UTC(y-1,1,28,23,30)).toISOString().slice(0,16)+'Z'};
+  }
+  const sm=Math.min(...months)-1,em=Math.max(...months);
+  const y=now.getFullYear();
+  let from=new Date(Date.UTC(y,sm,1)),to=new Date(Date.UTC(y,em,0,23,30));
+  if(to>now){from=new Date(Date.UTC(y-1,sm,1));to=new Date(Date.UTC(y-1,em,0,23,30));}
+  return{from:from.toISOString().slice(0,16)+'Z',to:to.toISOString().slice(0,16)+'Z'};
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN LOAD
+// ═══════════════════════════════════════════════════════════════
+async function load() {
+  clearInterval(refreshTmr);
+  if(playing){playing=false;clearInterval(playTimer);document.getElementById('pbtn').innerHTML='&#9654;';}
+  periods=[]; spIdx=0; icDetail=[];
+  showScrub(false);
+  document.getElementById('chart-area').style.display='none';
+  document.getElementById('lag-banner').style.display='none';
+
+  // B1610 has a 5-working-day lag — show the most recent available date
+  const latestDate = mostRecentB1610Date();
+
+  try {
+    if(win==='recent') {
+      // Fetch most recent available full day from B1610
+      showLoader(
+        `Loading ${latestDate} (most recent available)`,
+        'B1610 data has a 5 working-day lag. Fetching regional generation by BM unit.',
+        true
+      );
+      setProgress(10);
+      const [rawB,demRows,fuelhh] = await Promise.all([
+        fetchB1610(latestDate),
+        fetchITSDO(latestDate),
+        fetchFUELHH(latestDate)
+      ]);
+      setProgress(80);
+      periods = aggregateB1610(rawB, demRows, fuelhh);
+      if(!periods.length) throw new Error('No B1610 data returned for '+latestDate);
+      spIdx = periods.length-1;
+      icDetail = periods[periods.length-1].icSnap||[];
+      // Show lag banner in sidebar
+      const lagBanner=document.getElementById('lag-banner');
+      lagBanner.style.display='block';
+      lagBanner.textContent=`Showing ${latestDate} — B1610 data has a 5 working-day settlement lag. Real-time data requires the FPN dataset (next phase).`;
+      setStatus('live', `${periods.length} SPs · ${latestDate} · B1610`);
+      document.getElementById('sld').max=periods.length-1;
+      document.getElementById('sld').value=spIdx;
+      drawSpark(); showScrub(true); updateScrubUI();
+
+    } else {
+      let fromISO,toISO;
+      if(win==='week'){
+        const s=new Date(); s.setUTCDate(s.getUTCDate()-7);
+        fromISO=s.toISOString().slice(0,16)+'Z'; toISO=new Date(latestDate+'T23:59Z').toISOString().slice(0,16)+'Z';
+        showLoader('Loading 7 days (national, downsampled)…','',true);
+      } else if(win==='month'){
+        const s=new Date(); s.setUTCDate(s.getUTCDate()-30);
+        fromISO=s.toISOString().slice(0,16)+'Z'; toISO=new Date(latestDate+'T23:59Z').toISOString().slice(0,16)+'Z';
+        showLoader('Loading 30 days (national, downsampled)…','',true);
+      } else {
+        const r=seasonRange(win); fromISO=r.from; toISO=r.to;
+        showLoader(`Loading ${win} (national, downsampled)…`,'',true);
+      }
+      setProgress(20);
+      const rows=await fetchAGPTRange(fromISO,toISO);
+      setProgress(80);
+      periods=buildPeriodsFromAGPT(rows);
+      if(!periods.length) throw new Error('No AGPT data returned');
+      setStatus('live',`${periods.length} periods · ${fromISO.slice(0,10)}→${toISO.slice(0,10)} · AGPT (national)`);
+      // No scrub for downsampled windows — too many periods
+    }
+
+    setProgress(100);
+    hideLoader();
+    renderMap();
+    renderSidebar();
+
+  } catch(e) {
+    setStatus('err','Error: '+e.message);
+    document.getElementById('lmsg').textContent='Error: '+e.message;
+    document.getElementById('lsub').textContent='';
+    document.getElementById('prog-wrap').style.display='none';
+    console.error(e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════
+function toDateStr(d){ return d.toISOString().slice(0,10); }
+
+function setWin(w){
+  win=w;
+  ALL_WINS.forEach(id=>{ document.getElementById('t-'+id).className='tbtn'+(id===w?' on':''); });
+  selGsp=null;
+  load();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════
+async function boot() {
+  showLoader('Loading boundary data…', 'Fetching DNO region polygons from NESO');
+  const geo = await loadGeo();
+
+  // Wait for container to have real dimensions before fitting
+  await new Promise(r=>{
+    function tryFit(){
+      if(mapEl.clientWidth>20&&mapEl.clientHeight>20){ fitMap(geo); r(); }
+      else setTimeout(tryFit,50);
+    }
+    tryFit();
+  });
+  new ResizeObserver(()=>fitMap(geo)).observe(mapEl);
+
+  showLoader('Loading BM unit reference…','~1,500 registered generation units',true);
+  setProgress(0);
+  try {
+    const n=await loadBMRef();
+    setProgress(100);
+    console.log(`BM ref loaded: ${n} units`);
+  } catch(e) {
+    console.error('BMRef failed:',e);
+    setStatus('err','BM reference failed — check network / CORS');
+    document.getElementById('lmsg').textContent='BM reference data failed to load. Make sure you are serving this file over HTTP (not file://). Run: python3 -m http.server 8080';
+    document.getElementById('lsub').textContent='Then open http://localhost:8080/gb_power_map.html';
+    return; // Don't proceed without reference data
+  }
+
+  setWin('recent');
+}
+
+boot();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+  HOW TO RUN THIS FILE
+  ─────────────────────────────────────────────────────────────────
+  This file makes cross-origin API requests and MUST be served over
+  HTTP, not opened directly from the filesystem (file://).
+
+  Option 1 — Python (recommended, no install needed):
+    cd /path/to/this/file
+    python3 -m http.server 8080
+    Open: http://localhost:8080/gb_power_map.html
+
+  Option 2 — Node.js:
+    npx serve .
+    Open the URL shown
+
+  Option 3 — VS Code Live Server extension:
+    Right-click the file → Open with Live Server
+═══════════════════════════════════════════════════════════════ -->
+</body>
+</html>
