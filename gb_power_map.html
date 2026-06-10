@@ -337,12 +337,15 @@ function fitMap(geo) {
   svg.attr('viewBox',`0 0 ${w} ${h}`);
   svg.selectAll('path.rgn').remove();
   svg.selectAll('path.rgn').data(geo.features,d=>d.properties._dnoId).join('path')
-    .attr('class','rgn').attr('d',d=>{try{const p=pFn(d);return(p&&!p.includes('NaN'))?p:null;}catch{return null;}})
+    .attr('class','rgn')
+    .attr('d',d=>{try{const p=pFn(d);return(p&&!p.includes('NaN'))?p:null;}catch{return null;}})
+    .attr('fill','#ccc') // placeholder until data arrives
     .attr('stroke','#fafaf8').attr('stroke-width','0.7').attr('cursor','pointer')
     .on('click',(_,d)=>{selGsp=selGsp===d.properties._gsp?null:d.properties._gsp;renderMap();renderSidebar();})
     .on('mousemove',showTip)
     .on('mouseleave',()=>{tipEl.style.display='none';});
-  renderMap();
+  // Only colour if data already loaded
+  if(periods.length) renderMap();
 }
 
 function curPeriod(){ return periods.length?periods[Math.min(spIdx,periods.length-1)]:null; }
@@ -357,25 +360,28 @@ function topFuels(byFuel) {
 }
 
 function renderMap() {
+  const paths=svg.selectAll('path.rgn');
+  if(paths.size()===0){ console.warn('renderMap: no paths in SVG yet'); return; }
   const p=curPeriod();
-  if(!p) { svg.selectAll('path.rgn').attr('fill','#ccc'); return; }
-  // Debug: log first GSP key to verify data shape
-  const gspKeys=Object.keys(p.byGsp);
-  if(gspKeys.length && !window._mapDebugLogged) {
+  if(!p){ paths.attr('fill','#ccc'); return; }
+
+  // One-time debug log
+  if(!window._mapDebugLogged) {
     window._mapDebugLogged=true;
-    const sampleGsp=gspKeys[0];
-    const sampleData=p.byGsp[sampleGsp];
-    console.log('renderMap debug — byGsp keys:',gspKeys.slice(0,5),'sample:',sampleGsp,'byFuel:',sampleData?.byFuel,'totalGen:',totalGen(sampleData));
-    // Also log what the SVG features have as _gsp
+    const gspKeys=Object.keys(p.byGsp);
+    console.log('byGsp keys:',gspKeys);
     const featGsps=[];
-    svg.selectAll('path.rgn').each(d=>featGsps.push(d.properties._gsp));
-    console.log('SVG feature _gsp values:',featGsps);
+    paths.each(d=>featGsps.push(d.properties._gsp));
+    console.log('SVG _gsp values:',featGsps);
+    const sample=gspKeys[0];
+    console.log('Sample',sample,'byFuel:',p.byGsp[sample]?.byFuel,'totalGen:',totalGen(p.byGsp[sample]));
   }
-  svg.selectAll('path.rgn')
+
+  paths
     .attr('fill', f => {
       const gsp=f.properties._gsp;
-      const r=regionData(gsp);
-      if(!r||!Object.keys(r.byFuel).length) return '#ccc';
+      const r=p.byGsp[gsp];
+      if(!r||!Object.keys(r.byFuel||{}).length) return '#ccc';
       return regionFill(r.byFuel);
     })
     .attr('stroke-width',f=>f.properties._gsp===selGsp?2:0.7)
@@ -546,19 +552,35 @@ function updateScrubUI() {
   document.getElementById('ndl').style.left=((spIdx/Math.max(periods.length-1,1))*100)+'%';
 }
 
-function onSlide(v){spIdx=+v;renderMap();renderSidebar();updateScrubUI();}
+function onSlide(v){
+  spIdx=+v;
+  renderMap();
+  renderSidebar();
+  updateScrubUI();
+}
 
 function togglePlay(){
   playing=!playing;
   const btn=document.getElementById('pbtn');
   if(playing){
     btn.innerHTML='&#9646;&#9646;'; spIdx=0;
+    // Disable chart animation during playback
+    Chart.defaults.animation=false;
     playTimer=setInterval(()=>{
       spIdx=(spIdx+1)%periods.length;
-      renderMap();renderSidebar();updateScrubUI();
-      if(spIdx===periods.length-1){playing=false;btn.innerHTML='&#9654;';clearInterval(playTimer);}
+      renderMap();updateScrubUI();
+      // Only update sidebar/charts every 4 steps during play to reduce load
+      if(spIdx%4===0||spIdx===periods.length-1) renderSidebar();
+      if(spIdx===periods.length-1){
+        playing=false;btn.innerHTML='&#9654;';clearInterval(playTimer);
+        Chart.defaults.animation={duration:150};
+        renderSidebar();
+      }
     },280);
-  } else {btn.innerHTML='&#9654;';clearInterval(playTimer);}
+  } else {
+    btn.innerHTML='&#9654;';clearInterval(playTimer);
+    Chart.defaults.animation={duration:150};
+  }
 }
 
 function showScrub(show){
