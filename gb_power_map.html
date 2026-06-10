@@ -377,7 +377,7 @@ function redrawPaths(geo) {
     })
     .attr('stroke','#fafaf8').attr('stroke-width','0.7').attr('cursor','pointer')
     .on('click', (_,d) => {
-      const gsp = dnoToGsp(d.properties._dnoId);
+      const gsp = featToGsp(d);
       selGsp = selGsp===gsp ? null : gsp;
       renderMap(); renderSidebar();
     })
@@ -386,22 +386,29 @@ function redrawPaths(geo) {
 }
 
 function dnoToGsp(dnoId) {
-  return Object.entries(GSP_MAP).find(([,v])=>v.dnoId===dnoId)?.[0] ?? null;
+  // First try direct lookup by dnoId
+  const entry = Object.entries(GSP_MAP).find(([,v])=>v.dnoId===dnoId);
+  return entry?.[0] ?? null;
+}
+
+function featToGsp(feat) {
+  // Use _gsp if set directly (from NESO GeoJSON Name field), else fall back to dnoId lookup
+  return feat.properties._gsp || dnoToGsp(feat.properties._dnoId);
 }
 
 function renderMap() {
   const pd = curPeriod();
   svg.selectAll('path.rgn')
     .attr('fill', f => {
-      const gsp = dnoToGsp(f.properties._dnoId);
+      const gsp = featToGsp(f);
       if (!gsp || !pd) return '#ccc';
       const r   = pd.byGsp[gsp];
       if (!r) return '#ccc';
       const net = totalGen(r) - (r.demand||0);
       return balCol(net);
     })
-    .attr('stroke-width', f => dnoToGsp(f.properties._dnoId)===selGsp ? 2 : 0.7)
-    .attr('stroke',       f => dnoToGsp(f.properties._dnoId)===selGsp ? '#111' : '#fafaf8');
+    .attr('stroke-width', f => featToGsp(f)===selGsp ? 2 : 0.7)
+    .attr('stroke',       f => featToGsp(f)===selGsp ? '#111' : '#fafaf8');
 }
 
 function curPeriod()  { return periods.length ? periods[Math.min(spIdx,periods.length-1)] : null; }
@@ -412,7 +419,7 @@ function totalGen(r) {
 }
 
 function showTip(ev, feat) {
-  const gsp = dnoToGsp(feat.properties._dnoId);
+  const gsp = featToGsp(feat);
   const pd  = curPeriod();
   if (!gsp||!pd) return;
   const r   = pd.byGsp[gsp]; if (!r) return;
@@ -657,16 +664,21 @@ async function loadBMRef() {
   const arr = j.data||j||[];
   arr.forEach(u=>{
     // Actual field names from API: nationalGridBmUnit, elexonBmUnit, fuelType, gspGroupId
-    const id = u.nationalGridBmUnit || u.elexonBmUnit;
-    if(!id) return;
-    const gsp = u.gspGroupId || ''; // already includes underscore e.g. "_K"
-    const ft  = u.fuelType || 'OTHER';
-    if(GSP_MAP[gsp]) { // only store units with a known GSP group
-      bmRef.set(id, {fuelType: ft, gspGroupId: gsp});
-    }
-    // Also index by elexonBmUnit as some B1610 rows use that
-    if(u.elexonBmUnit && u.elexonBmUnit !== id && GSP_MAP[gsp]) {
-      bmRef.set(u.elexonBmUnit, {fuelType: ft, gspGroupId: gsp});
+    const ngcId = u.nationalGridBmUnit;
+    const elxId = u.elexonBmUnit;
+    const gsp   = u.gspGroupId || ''; // already includes underscore e.g. "_K"
+    const ft    = u.fuelType || 'OTHER';
+    if(!GSP_MAP[gsp]) return; // skip units with no known GSP group
+
+    const entry = {fuelType: ft, gspGroupId: gsp};
+    // Index by all known ID variants
+    if(ngcId) bmRef.set(ngcId, entry);
+    if(elxId) bmRef.set(elxId, entry);
+    // B1610 bmUnit field sometimes uses nationalGridBmUnit with prefix variants
+    // e.g. "2__AALAB000" → try stripping prefix
+    if(ngcId) {
+      const stripped = ngcId.replace(/^[A-Z]_/,'').replace(/^[0-9]+__/,'');
+      if(stripped !== ngcId) bmRef.set(stripped, entry);
     }
   });
   return bmRef.size;
@@ -715,13 +727,15 @@ function aggregateB1610(rawB, demRows, fuelhh) {
   // FUELHH fields: settlementPeriod, fuelType, generation
 
   const byKey={}; // `${sp}|${gsp}|${fuel}` → mw
+  let matched=0, unmatched=0;
   rawB.forEach(row=>{
     const bmId = row.bmUnit || row.nationalGridBmUnitId || '';
     const sp   = row.settlementPeriod;
     const qty  = +(row.quantity||0);
     if(!bmId||!sp) return;
     const ref  = bmRef.get(bmId);
-    if(!ref) return;
+    if(!ref) { unmatched++; return; }
+    matched++;
     const ft   = ref.fuelType||'OTHER';
     const gsp  = ref.gspGroupId||'';
     if(!GSP_MAP[gsp]) return;
@@ -731,6 +745,7 @@ function aggregateB1610(rawB, demRows, fuelhh) {
     const key=`${sp}|${gsp}|${fuel}`;
     byKey[key]=(byKey[key]||0)+qty;
   });
+  console.log(`B1610 match rate: ${matched} matched, ${unmatched} unmatched (${(matched/(matched+unmatched)*100).toFixed(0)}%)`);
 
   // ITSDO is national only (no GSP breakdown) — distribute proportionally later
   // For now store as national total by SP
@@ -880,12 +895,16 @@ async function load() {
     } else {
       let fromISO,toISO;
       if(win==='week'){
-        const s=new Date(); s.setUTCDate(s.getUTCDate()-7);
-        fromISO=s.toISOString().slice(0,16)+'Z'; toISO=new Date(latestDate+'T23:59Z').toISOString().slice(0,16)+'Z';
+        const toDate = new Date(latestDate+'T23:59:00Z');
+        const fromDate = new Date(toDate); fromDate.setUTCDate(fromDate.getUTCDate()-7);
+        fromISO=fromDate.toISOString().slice(0,16)+'Z';
+        toISO=toDate.toISOString().slice(0,16)+'Z';
         showLoader('Loading 7 days (national, downsampled)…','',true);
       } else if(win==='month'){
-        const s=new Date(); s.setUTCDate(s.getUTCDate()-30);
-        fromISO=s.toISOString().slice(0,16)+'Z'; toISO=new Date(latestDate+'T23:59Z').toISOString().slice(0,16)+'Z';
+        const toDate = new Date(latestDate+'T23:59:00Z');
+        const fromDate = new Date(toDate); fromDate.setUTCDate(fromDate.getUTCDate()-30);
+        fromISO=fromDate.toISOString().slice(0,16)+'Z';
+        toISO=toDate.toISOString().slice(0,16)+'Z';
         showLoader('Loading 30 days (national, downsampled)…','',true);
       } else {
         const r=seasonRange(win); fromISO=r.from; toISO=r.to;
