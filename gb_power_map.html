@@ -226,9 +226,13 @@ const FUEL_MAP = {
   WIND:'wind', SOLAR:'solar', NUCLEAR:'nuclear', NPSHYD:'hydro',
   BIOMASS:'biomass', CCGT:'gas', OCGT:'gas', OIL:'oil', COAL:'coal',
   OTHER:'other', PS:'ps',
+  // Interconnectors — actual fuelType strings from BMRef
   INTFR:'ic', INTIFA2:'ic', INTELEC:'ic', INTNED:'ic',
-  INTIRL:'ic', INTEW:'ic', INTMRS:'ic', NSL:'ic', VIKL:'ic',
-  MOYLE:'ic', GREENLINK:'ic'
+  INTIRL:'ic', INTEW:'ic', INTMRS:'ic', INTNEM:'ic',
+  NSL:'ic', INTNSL:'ic',
+  VIKL:'ic', INTVKL:'ic',
+  MOYLE:'ic', GREENLINK:'ic', INTGRNL:'ic',
+  INTEW:'ic', INTELEC:'ic',
 };
 
 const IC_META = {
@@ -599,17 +603,13 @@ async function loadBMRef(){
   if(!res.ok) throw new Error('BMRef HTTP '+res.status);
   const j=await res.json();
   const arr=j.data||j||[];
-  // Diagnostic: count fuel types
-  const ftCounts={};
-  arr.forEach(u=>{ const ft=u.fuelType||'NULL'; ftCounts[ft]=(ftCounts[ft]||0)+1; });
-  console.log('BMRef fuelType distribution:',JSON.stringify(ftCounts));
   bmRef.clear();
   arr.forEach(u=>{
     const ngcId=u.nationalGridBmUnit||'';
     const elxId=u.elexonBmUnit||'';
     const gsp=u.gspGroupId||'';
-    const ft=u.fuelType||'OTHER';
-    if(!GSP_MAP[gsp]) return;
+    const ft=u.fuelType||''; // null fuelType → skip (2439 units, mostly small embedded with no fuel recorded)
+    if(!ft||!GSP_MAP[gsp]) return; // skip unknowns — they'd all land in 'other' and create noise
     const e={fuelType:ft,gspGroupId:gsp};
     if(ngcId) bmRef.set(ngcId,e);
     if(elxId) bmRef.set(elxId,e);
