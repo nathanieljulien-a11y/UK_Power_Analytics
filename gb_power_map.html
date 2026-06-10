@@ -7,6 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>GB Power · Generation Mix</title>
+<!-- v20260610 -->
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#eeeeed;color:#111}
@@ -409,14 +410,26 @@ function renderSidebar() {
   // Aggregate fuel data
   let byFuel={}, genTotal=0;
   const p=curPeriod();
+
   if(isReg && p?.byGsp[selGsp]) {
     byFuel={...p.byGsp[selGsp].byFuel};
     genTotal=totalGen(p.byGsp[selGsp]);
-  } else if(!isReg && p) {
-    Object.values(p.byGsp).forEach(r=>{
-      genTotal+=totalGen(r);
-      Object.entries(r.byFuel||{}).forEach(([k,v])=>{byFuel[k]=(byFuel[k]||0)+v;});
-    });
+  } else if(!isReg) {
+    // For national overview in Recent mode: use live genSummary (no lag)
+    const liveSummary=window._liveGenSummary;
+    if(win==='recent' && liveSummary?.data) {
+      liveSummary.data.forEach(r=>{
+        const fuel=FUEL_MAP[r.fuelType]||'other';
+        if(fuel==='ic') return; // handled separately
+        byFuel[fuel]=(byFuel[fuel]||0)+(r.generation||0);
+        genTotal+=(r.generation||0);
+      });
+    } else if(p) {
+      Object.values(p.byGsp).forEach(r=>{
+        genTotal+=totalGen(r);
+        Object.entries(r.byFuel||{}).forEach(([k,v])=>{byFuel[k]=(byFuel[k]||0)+v;});
+      });
+    }
   }
 
   const top=topFuels(byFuel);
@@ -610,26 +623,29 @@ async function loadBMRef(){
   arr.forEach(u=>{
     const ngcId=u.nationalGridBmUnit||'';
     const elxId=u.elexonBmUnit||'';
-    const gsp=u.gspGroupId||'';
+    const gsp=u.gspGroupId||'';  // may be null for offshore/remote T_ units
     const ft=u.fuelType||'';
-    if(!GSP_MAP[gsp]) return;
-
-    // Inclusion strategy based on unit prefix:
-    // T_ (transmission): include all — use OTHER for null fuelType (real plant, just unclassified)
-    // E_ (embedded):     include named fuel only — skip null (unidentifiable distributed gen)
-    // other (2__ etc):   include named fuel only — captures interconnectors + some wind/hydro
     const isT=elxId.startsWith('T_');
-    const effectiveFt = ft || (isT ? 'OTHER' : '');
-    if(!effectiveFt) return; // skip null non-T units
+    const isE=elxId.startsWith('E_');
 
-    const e={fuelType:effectiveFt, gspGroupId:gsp};
+    // Inclusion strategy:
+    // T_ units: include ALL (even null GSP or null fuelType) — real plant
+    // E_ units: skip — double-counting risk vs GSP demand (see architecture notes)
+    // interconnectors (other prefix with named IC fuelType): include
+    // everything else with null fuelType: skip
+    if(!isT) {
+      // For non-T units: only include if named fuel type and known GSP
+      if(!ft || !GSP_MAP[gsp]) return;
+    }
+
+    const effectiveFt = ft || (isT ? 'OTHER' : '');
+    if(!effectiveFt) return;
+
+    const e={fuelType:effectiveFt, gspGroupId:GSP_MAP[gsp]?gsp:null};
     if(ngcId) bmRef.set(ngcId,e);
     if(elxId) bmRef.set(elxId,e);
-    if(ngcId){bmRef.set('2__'+ngcId,e);bmRef.set('T_'+ngcId,e);bmRef.set('E_'+ngcId,e);}
-    if(elxId.length>2&&elxId[1]==='_'){
-      bmRef.set(elxId.slice(2),e);
-      bmRef.set('2__'+elxId.slice(2),e);
-    }
+    // Index stripped versions so B1610 T_XXXX joins to BMRef XXXX
+    if(elxId.length>2&&elxId[1]==='_') bmRef.set(elxId.slice(2),e);
   });
   return bmRef.size;
 }
@@ -645,10 +661,21 @@ async function fetchB1610(dateStr){
   return j.data||j||[];
 }
 
-async function fetchFUELHH_live(){
-  // FUELHH always returns current period — use for IC detail only
-  const res=await fetch(`${ELX}/datasets/FUELHH?format=json`,{headers:{Accept:'application/json'}});
-  if(!res.ok){console.warn('FUELHH',res.status);return[];}
+async function fetchGenSummary(){
+  // Live national generation by fuel — no lag, correct MW, confirmed working
+  const res=await fetch(`${ELX}/generation/outturn/summary`,{headers:{Accept:'application/json'}});
+  if(!res.ok){console.warn('GenSummary',res.status);return null;}
+  const j=await res.json();
+  // Returns [{startTime, settlementPeriod, data:[{fuelType, generation}]}]
+  const arr=j.data||j||[];
+  return arr.length?arr[arr.length-1]:null; // latest period
+}
+
+async function fetchSystemPrices(dateStr){
+  // SSP/SBP + net imbalance volume per SP — for IC and price context
+  const url=`${ELX}/balancing/settlement/system-prices/${dateStr}?format=json`;
+  const res=await fetch(url,{headers:{Accept:'application/json'}});
+  if(!res.ok){console.warn('SysPrices',res.status);return[];}
   const j=await res.json();
   return j.data||j||[];
 }
@@ -664,7 +691,7 @@ async function fetchAGPTRange(fromISO,toISO){
 // ═══════════════════════════════════════════════════════════════
 // AGGREGATE B1610 → PERIODS
 // ═══════════════════════════════════════════════════════════════
-function aggregateB1610(rawB, fuelhh) {
+function aggregateB1610(rawB, genSummary) {
   const byKey={};
   let matchedMW=0, skippedSupplier=0, unmatchedMW=0;
 
@@ -678,7 +705,7 @@ function aggregateB1610(rawB, fuelhh) {
     // Skip 2__ supplier/aggregated units — demand-side metering, not physical generators
     if(bmId.startsWith('2__')){ skippedSupplier+=Math.abs(qty); return; }
 
-    // Join to BMRef: try direct bmUnit match (T_ or E_ prefixed), then stripped prefix
+    // Join to BMRef: try direct match, then stripped T_/E_ prefix
     const ref = bmRef.get(bmId)
              || bmRef.get(ngId)
              || bmRef.get(bmId.replace(/^[TE]_/,''));
@@ -687,7 +714,7 @@ function aggregateB1610(rawB, fuelhh) {
 
     const ft=ref.fuelType||'OTHER';
     const gsp=ref.gspGroupId||'';
-    if(!GSP_MAP[gsp]) return;
+    if(!gsp||!GSP_MAP[gsp]) return; // T_ units have no GSP — skip regional attribution
     let fuel;
     if(ft==='PS') fuel=qty>=0?'ps_dis':'ps_chg';
     else fuel=FUEL_MAP[ft]||'other';
@@ -696,16 +723,16 @@ function aggregateB1610(rawB, fuelhh) {
   });
 
   const total=matchedMW+unmatchedMW;
-  console.log(`B1610: ${Math.round(matchedMW)}MW matched, ${Math.round(skippedSupplier)}MW skipped (2__ supplier units), ${Math.round(unmatchedMW)}MW unmatched T_/E_ (${total>0?(matchedMW/total*100).toFixed(0):0}% of T_/E_ matched)`);
+  console.log(`B1610: ${Math.round(matchedMW)}MW matched regionally, ${Math.round(skippedSupplier)}MW skipped (2__ supplier), ${Math.round(unmatchedMW)}MW T_ unmatched or no GSP (${total>0?(matchedMW/total*100).toFixed(0):0}%)`);
 
-  // IC detail from live FUELHH
-  const icByType={};
-  fuelhh.forEach(row=>{
-    const ft=row.fuelType||'';
-    const mw=+(row.generation||0);
-    if(IC_META[ft]) icByType[ft]=(icByType[ft]||0)+mw;
-  });
-  const icSnap=Object.entries(IC_META).map(([k,meta])=>({key:k,name:meta.name,ci:meta.ci,mw:icByType[k]||0})).filter(x=>Math.abs(x.mw)>5);
+  // IC detail from generation/outturn/summary (live, no lag)
+  const icSnap=[];
+  if(genSummary?.data){
+    genSummary.data.forEach(r=>{
+      const ft=r.fuelType||'';
+      if(IC_META[ft]) icSnap.push({key:ft,name:IC_META[ft].name,ci:IC_META[ft].ci,mw:r.generation||0});
+    });
+  }
 
   const allSps=[...new Set(rawB.map(r=>r.settlementPeriod).filter(Boolean))].sort((a,b)=>+a-+b);
 
@@ -773,15 +800,17 @@ async function load(){
       const dateStr=latestB1610Date();
       showLoader(`Loading ${dateStr}`,`B1610 regional generation · ~6 working day settlement lag`,true);
       setProgress(10);
-      const [rawB,fuelhh]=await Promise.all([fetchB1610(dateStr),fetchFUELHH_live()]);
+      const [rawB, genSummary]=await Promise.all([fetchB1610(dateStr), fetchGenSummary()]);
       setProgress(75);
-      periods=aggregateB1610(rawB, fuelhh);
+      periods=aggregateB1610(rawB, genSummary);
       if(!periods.length) throw new Error('No B1610 data for '+dateStr);
+      window._liveGenSummary=genSummary; // store for national overview sidebar
       spIdx=periods.length-1;
       document.getElementById('sld').max=periods.length-1;
       document.getElementById('sld').value=spIdx;
       drawSpark(); showScrub(true); updateScrubUI();
-      setStatus('live',`${periods.length} SPs · ${dateStr} · B1610`);
+      const liveTime=genSummary?.startTime?.slice(11,16)+'Z'||'';
+      setStatus('live',`Regional: ${dateStr} (B1610) · Live national: ${liveTime}`);
     } else {
       let fromISO,toISO;
       const latest=latestB1610Date();
