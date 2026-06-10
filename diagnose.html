@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>API Diagnostics</title>
+<style>
+body{font-family:monospace;padding:20px;max-width:900px}
+h2{font-size:14px;margin-top:20px;border-bottom:1px solid #ddd}
+pre{background:#f4f4f4;padding:10px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto}
+.ok{color:green}.err{color:red}.pending{color:orange}
+button{padding:6px 12px;cursor:pointer;margin:4px}
+</style></head>
+<body>
+<h1 style="font-size:16px">Elexon + NESO API Diagnostics</h1>
+<p style="font-size:12px;color:#666">Opens each endpoint and shows the raw response so we can see exact field names.</p>
+<button onclick="runAll()">Run all tests</button>
+<div id="out"></div>
+
+<script>
+const ELX = 'https://data.elexon.co.uk/bmrs/api/v1';
+const NESO_GEO = 'https://api.neso.energy/dataset/0e377f16-95e9-4c15-a1fc-49e06a39cfa0/resource/e96db306-aaa8-45be-aecd-65b34d38923a/download/dno_license_areas_20200506.geojson';
+
+function log(id, status, text) {
+  document.getElementById(id+'_status').className = status;
+  document.getElementById(id+'_status').textContent = status.toUpperCase();
+  document.getElementById(id+'_pre').textContent = text;
+}
+
+async function test(id, url, transform) {
+  const el = document.getElementById(id+'_status');
+  el.className='pending'; el.textContent='LOADING…';
+  try {
+    const res = await fetch(url, {headers:{Accept:'application/json'}});
+    const txt = await res.text();
+    let display;
+    try {
+      const j = JSON.parse(txt);
+      display = transform ? transform(j) : JSON.stringify(j, null, 2).slice(0,2000)+'…';
+    } catch(e) {
+      display = txt.slice(0,500);
+    }
+    log(id, res.ok?'ok':'err', `HTTP ${res.status}\n\n${display}`);
+  } catch(e) {
+    log(id, 'err', 'FAILED: '+e.message);
+  }
+}
+
+const TESTS = [
+  {
+    id:'geo',
+    label:'NESO DNO GeoJSON — first feature properties',
+    url: NESO_GEO,
+    transform: j => {
+      const f = j.features?.[0];
+      return `Total features: ${j.features?.length}\n\nFirst feature properties:\n${JSON.stringify(f?.properties, null, 2)}\n\nAll feature Names:\n${j.features?.map(f=>JSON.stringify(f.properties)).join('\n')}`;
+    }
+  },
+  {
+    id:'bmref',
+    label:'BM Unit Reference — first 3 items',
+    url: `${ELX}/reference/bmunits/all?format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Total items: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nSecond item:\n${JSON.stringify(arr[1], null, 2)}\n\nThird item:\n${JSON.stringify(arr[2], null, 2)}`;
+    }
+  },
+  {
+    id:'b1610',
+    label:'B1610 stream — last 5 available days',
+    url: `${ELX}/datasets/B1610/stream?from=2026-05-28T00:00Z&to=2026-05-28T01:00Z&format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}`;
+    }
+  },
+  {
+    id:'b1610b',
+    label:'B1610 stream — try June 2 2026',
+    url: `${ELX}/datasets/B1610/stream?from=2026-06-02T00:00Z&to=2026-06-02T01:00Z&format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}`;
+    }
+  },
+  {
+    id:'itsdo',
+    label:'ITSDO — 2026-05-28',
+    url: `${ELX}/datasets/ITSDO?from=2026-05-28T00:00Z&to=2026-05-28T01:00Z&format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}`;
+    }
+  },
+  {
+    id:'fuelhh',
+    label:'FUELHH — 2026-05-28',
+    url: `${ELX}/datasets/FUELHH?from=2026-05-28T00:00Z&to=2026-05-28T01:00Z&format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}`;
+    }
+  },
+];
+
+function runAll() {
+  TESTS.forEach(t => test(t.id, t.url, t.transform));
+}
+
+// Build UI
+const out = document.getElementById('out');
+TESTS.forEach(t => {
+  out.innerHTML += `
+    <h2>${t.label}</h2>
+    <p style="font-size:11px;color:#999">${t.url}</p>
+    <p><span id="${t.id}_status" class="pending">PENDING</span></p>
+    <pre id="${t.id}_pre">Click "Run all tests"</pre>`;
+});
+</script>
+</body>
+</html>
