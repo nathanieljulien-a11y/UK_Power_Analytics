@@ -663,22 +663,32 @@ async function loadBMRef() {
   bmRef.clear();
   const arr = j.data||j||[];
   arr.forEach(u=>{
-    // Actual field names from API: nationalGridBmUnit, elexonBmUnit, fuelType, gspGroupId
-    const ngcId = u.nationalGridBmUnit;
-    const elxId = u.elexonBmUnit;
-    const gsp   = u.gspGroupId || ''; // already includes underscore e.g. "_K"
+    const ngcId = u.nationalGridBmUnit || ''; // e.g. "ABERU-1"
+    const elxId = u.elexonBmUnit || '';        // e.g. "E_ABERDARE" or "T_ABRBO-1"
+    const gsp   = u.gspGroupId || '';
     const ft    = u.fuelType || 'OTHER';
-    if(!GSP_MAP[gsp]) return; // skip units with no known GSP group
+    if(!GSP_MAP[gsp]) return;
+    const entry = {fuelType:ft, gspGroupId:gsp};
 
-    const entry = {fuelType: ft, gspGroupId: gsp};
-    // Index by all known ID variants
-    if(ngcId) bmRef.set(ngcId, entry);
-    if(elxId) bmRef.set(elxId, entry);
-    // B1610 bmUnit field sometimes uses nationalGridBmUnit with prefix variants
-    // e.g. "2__AALAB000" → try stripping prefix
+    // B1610 bmUnit field uses various prefixes before the core ID.
+    // From diagnostics: "2__AANGE001" has nationalGridBmUnitId "AG-ALIM02"
+    // The join is: B1610.bmUnit → strip prefix → match BMRef.nationalGridBmUnit
+    // OR: B1610.bmUnit directly matches BMRef.elexonBmUnit
+    // OR: B1610.nationalGridBmUnitId matches BMRef.nationalGridBmUnit
+
+    if(ngcId) bmRef.set(ngcId, entry);          // direct
+    if(elxId) bmRef.set(elxId, entry);          // direct
+
+    // Add prefix variants of nationalGridBmUnit that B1610 might use
     if(ngcId) {
-      const stripped = ngcId.replace(/^[A-Z]_/,'').replace(/^[0-9]+__/,'');
-      if(stripped !== ngcId) bmRef.set(stripped, entry);
+      bmRef.set('2__'+ngcId, entry);             // "2__ABERU-1"
+      bmRef.set('T_'+ngcId,  entry);             // "T_ABERU-1"
+      bmRef.set('E_'+ngcId,  entry);             // "E_ABERU-1"
+    }
+    // elexonBmUnit without its prefix
+    if(elxId.length>2 && (elxId[1]==='_')) {
+      bmRef.set(elxId.slice(2), entry);          // "ABERDARE" from "E_ABERDARE"
+      bmRef.set('2__'+elxId.slice(2), entry);    // "2__ABERDARE"
     }
   });
   return bmRef.size;
@@ -729,11 +739,16 @@ function aggregateB1610(rawB, demRows, fuelhh) {
   const byKey={}; // `${sp}|${gsp}|${fuel}` → mw
   let matched=0, unmatched=0;
   rawB.forEach(row=>{
-    const bmId = row.bmUnit || row.nationalGridBmUnitId || '';
-    const sp   = row.settlementPeriod;
-    const qty  = +(row.quantity||0);
-    if(!bmId||!sp) return;
-    const ref  = bmRef.get(bmId);
+    const bmId  = row.bmUnit || '';
+    const ngId  = row.nationalGridBmUnitId || '';
+    const sp    = row.settlementPeriod;
+    const qty   = +(row.quantity||0);
+    if(!sp) return;
+    // Try multiple join strategies in order
+    const ref = bmRef.get(bmId)
+             || bmRef.get(ngId)
+             || bmRef.get(bmId.replace(/^2__/,''))
+             || bmRef.get(bmId.replace(/^[A-Z]_/,''));
     if(!ref) { unmatched++; return; }
     matched++;
     const ft   = ref.fuelType||'OTHER';
