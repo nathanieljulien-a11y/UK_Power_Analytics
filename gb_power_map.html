@@ -574,7 +574,8 @@ async function loadBMRef(){
   setStatus('loading','Loading BM unit reference…');
   const res=await fetch(`${ELX}/reference/bmunits/all?format=json`,{headers:{Accept:'application/json'}});
   if(!res.ok) throw new Error('BMRef HTTP '+res.status);
-  const arr=(await res.json()).data||[];
+  const j=await res.json();
+  const arr=j.data||j||[];
   bmRef.clear();
   arr.forEach(u=>{
     const ngcId=u.nationalGridBmUnit||'';
@@ -601,21 +602,24 @@ async function fetchB1610(dateStr){
   const url=`${ELX}/datasets/B1610/stream?from=${dateStr}T00:00Z&to=${dateStr}T23:59Z&format=json`;
   const res=await fetch(url,{headers:{Accept:'application/json'}});
   if(!res.ok) throw new Error(`B1610 HTTP ${res.status} for ${dateStr}`);
-  return (await res.json()).data||(await res.json())||[];
+  const j=await res.json();
+  return j.data||j||[];
 }
 
 async function fetchFUELHH_live(){
   // FUELHH always returns current period — use for IC detail only
   const res=await fetch(`${ELX}/datasets/FUELHH?format=json`,{headers:{Accept:'application/json'}});
   if(!res.ok){console.warn('FUELHH',res.status);return[];}
-  return (await res.json()).data||[];
+  const j=await res.json();
+  return j.data||j||[];
 }
 
 async function fetchAGPTRange(fromISO,toISO){
   const url=`${ELX}/generation/actual/per-type?from=${fromISO}&to=${toISO}&format=json`;
   const res=await fetch(url,{headers:{Accept:'application/json'}});
   if(!res.ok) throw new Error('AGPT '+res.status);
-  return (await res.json()).data||[];
+  const j=await res.json();
+  return j.data||j||[];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -724,7 +728,7 @@ async function load(){
       setProgress(10);
       const [rawB,fuelhh]=await Promise.all([fetchB1610(dateStr),fetchFUELHH_live()]);
       setProgress(75);
-      periods=aggregateB1610(Array.isArray(rawB)?rawB:(rawB.data||[]), fuelhh);
+      periods=aggregateB1610(rawB, fuelhh);
       if(!periods.length) throw new Error('No B1610 data for '+dateStr);
       spIdx=periods.length-1;
       document.getElementById('sld').max=periods.length-1;
