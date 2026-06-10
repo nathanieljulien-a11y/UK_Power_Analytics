@@ -81,12 +81,30 @@ const TESTS = [
     }
   },
   {
-    id:'itsdo',
-    label:'ITSDO — settlementDate=2026-05-28',
-    url: `${ELX}/datasets/ITSDO?settlementDate=2026-05-28&format=json`,
+    id:'gspgt',
+    label:'GSPGT — GSP Group Take per GSP per SP (settlementDate=2026-05-28)',
+    url: `${ELX}/datasets/GSPGT?settlementDate=2026-05-28&format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}\n\nDistinct GSP groups: ${[...new Set(arr.map(r=>r.gspGroupId||r.gspGroup||'?'))].join(', ')}`;
+    }
+  },
+  {
+    id:'indoitsdo',
+    label:'INDOITSDO — INDO + ITSDO combined (settlementDate=2026-05-28)',
+    url: `${ELX}/datasets/INDOITSDO?settlementDate=2026-05-28&format=json`,
     transform: j => {
       const arr = j.data||j||[];
       return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}`;
+    }
+  },
+  {
+    id:'itsdo2',
+    label:'ITSDO — correct settlementDate param (2026-05-28)',
+    url: `${ELX}/datasets/ITSDO?settlementDate=2026-05-28&format=json`,
+    transform: j => {
+      const arr = j.data||j||[];
+      return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nLast item:\n${JSON.stringify(arr[arr.length-1], null, 2)}\n\nDistinct GSP groups: ${[...new Set(arr.map(r=>r.gspGroupId||r.gspGroup||r.zone||'?'))].join(', ')}`;
     }
   },
   {
