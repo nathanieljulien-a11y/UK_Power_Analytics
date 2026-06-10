@@ -161,12 +161,11 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 const ELX      = 'https://data.elexon.co.uk/bmrs/api/v1';
 const NESO_GEO = 'https://api.neso.energy/dataset/0e377f16-95e9-4c15-a1fc-49e06a39cfa0/resource/e96db306-aaa8-45be-aecd-65b34d38923a/download/dno_license_areas_20200506.geojson';
 
-// B1610 has a 5 working-day lag. Calculate the most recent available date.
+// B1610 has ~6 working-day lag. Calculate conservatively.
 function mostRecentB1610Date() {
   const d = new Date();
-  // Step back until we have 5 working days of lag
   let workdays = 0;
-  while (workdays < 5) {
+  while (workdays < 6) {
     d.setUTCDate(d.getUTCDate() - 1);
     const dow = d.getUTCDay();
     if (dow !== 0 && dow !== 6) workdays++;
@@ -283,19 +282,17 @@ async function loadGeo() {
     const res = await fetch(NESO_GEO);
     if (!res.ok) throw new Error('GeoJSON '+res.status);
     geo = await res.json();
-    // Match each feature to a dnoId
+    // The NESO GeoJSON Name field IS the GSP group code (_A, _B, etc.)
+    // Map directly: Name → GSP_MAP → dnoId
     geo.features.forEach(f => {
-      const raw = f.properties.Name||f.properties.name||f.properties.LongName||'';
-      const nm  = raw.toLowerCase();
-      for (const [id, frags] of Object.entries(DNO_NAME_MAP)) {
-        if (frags.some(frag => nm.includes(frag))) {
-          f.properties._dnoId  = +id;
-          f.properties._name   = GSP_MAP[Object.entries(GSP_MAP).find(([,v])=>v.dnoId===+id)?.[0]]?.name || raw;
-          break;
-        }
+      const gspCode = f.properties.Name; // e.g. "_A"
+      const gspEntry = GSP_MAP[gspCode];
+      if (gspEntry) {
+        f.properties._dnoId = gspEntry.dnoId;
+        f.properties._name  = gspEntry.name;
+        f.properties._gsp   = gspCode;
       }
     });
-    // Filter to only matched features
     geo.features = geo.features.filter(f => f.properties._dnoId);
     console.log(`GeoJSON loaded: ${geo.features.length} DNO regions matched`);
   } catch(e) {
@@ -659,12 +656,18 @@ async function loadBMRef() {
   bmRef.clear();
   const arr = j.data||j||[];
   arr.forEach(u=>{
-    const id=u.bmUnitId||u.bmUnit;
+    // Actual field names from API: nationalGridBmUnit, elexonBmUnit, fuelType, gspGroupId
+    const id = u.nationalGridBmUnit || u.elexonBmUnit;
     if(!id) return;
-    // Normalise GSP group: ensure it starts with '_'
-    let gsp = u.gspGroupId||u.gspGroup||u.gsP_GROUP_ID||u.gspgroup||'';
-    if(gsp && !gsp.startsWith('_')) gsp='_'+gsp;
-    bmRef.set(id,{fuelType:u.fuelType||u.fueltype||'OTHER', gspGroupId:gsp});
+    const gsp = u.gspGroupId || ''; // already includes underscore e.g. "_K"
+    const ft  = u.fuelType || 'OTHER';
+    if(GSP_MAP[gsp]) { // only store units with a known GSP group
+      bmRef.set(id, {fuelType: ft, gspGroupId: gsp});
+    }
+    // Also index by elexonBmUnit as some B1610 rows use that
+    if(u.elexonBmUnit && u.elexonBmUnit !== id && GSP_MAP[gsp]) {
+      bmRef.set(u.elexonBmUnit, {fuelType: ft, gspGroupId: gsp});
+    }
   });
   return bmRef.size;
 }
@@ -674,7 +677,8 @@ async function loadBMRef() {
 // Note: 5 working day lag. Use mostRecentB1610Date().
 // ═══════════════════════════════════════════════════════════════
 async function fetchB1610(dateStr) {
-  // B1610/stream uses 'from' and 'to' ISO datetime params
+  // B1610 stream: bmUnit field joins to nationalGridBmUnit in BMRef
+  // from/to must span the full day
   const from=`${dateStr}T00:00Z`, to=`${dateStr}T23:59Z`;
   const url=`${ELX}/datasets/B1610/stream?from=${from}&to=${to}&format=json`;
   const res=await fetch(url,{headers:{Accept:'application/json'}});
@@ -684,8 +688,8 @@ async function fetchB1610(dateStr) {
 }
 
 async function fetchITSDO(dateStr) {
-  const from=`${dateStr}T00:00Z`, to=`${dateStr}T23:59Z`;
-  const url=`${ELX}/datasets/ITSDO?from=${from}&to=${to}&format=json`;
+  // ITSDO ignores from/to and returns current period — use settlementDate param instead
+  const url=`${ELX}/datasets/ITSDO?settlementDate=${dateStr}&format=json`;
   const res=await fetch(url,{headers:{Accept:'application/json'}});
   if(!res.ok){ console.warn('ITSDO',res.status); return []; }
   const j=await res.json();
@@ -693,8 +697,8 @@ async function fetchITSDO(dateStr) {
 }
 
 async function fetchFUELHH(dateStr) {
-  const from=`${dateStr}T00:00Z`, to=`${dateStr}T23:59Z`;
-  const url=`${ELX}/datasets/FUELHH?from=${from}&to=${to}&format=json`;
+  // FUELHH ignores from/to — use settlementDate param
+  const url=`${ELX}/datasets/FUELHH?settlementDate=${dateStr}&format=json`;
   const res=await fetch(url,{headers:{Accept:'application/json'}});
   if(!res.ok){ console.warn('FUELHH',res.status); return []; }
   const j=await res.json();
@@ -705,68 +709,79 @@ async function fetchFUELHH(dateStr) {
 // AGGREGATE B1610 → PERIODS
 // ═══════════════════════════════════════════════════════════════
 function aggregateB1610(rawB, demRows, fuelhh) {
-  // Build {sp|gsp|fuel} → mw
-  const byKey={};
+  // B1610 fields: bmUnit, settlementPeriod, quantity
+  // BMRef key: nationalGridBmUnit (indexed as bmRef key)
+  // ITSDO fields: settlementPeriod, demand (national only — no gspGroupId)
+  // FUELHH fields: settlementPeriod, fuelType, generation
+
+  const byKey={}; // `${sp}|${gsp}|${fuel}` → mw
   rawB.forEach(row=>{
-    const bmId=row.bmUnitId||row.nationalGridBmUnit||row.bmUnit||'';
-    const sp=row.settlementPeriod||row.period;
-    const qty=+(row.quantity||row.generation||0);
+    const bmId = row.bmUnit || row.nationalGridBmUnitId || '';
+    const sp   = row.settlementPeriod;
+    const qty  = +(row.quantity||0);
     if(!bmId||!sp) return;
-    const ref=bmRef.get(bmId);
+    const ref  = bmRef.get(bmId);
     if(!ref) return;
-    const ft=ref.fuelType||'OTHER';
-    let gsp=ref.gspGroupId||'';
+    const ft   = ref.fuelType||'OTHER';
+    const gsp  = ref.gspGroupId||'';
     if(!GSP_MAP[gsp]) return;
     let fuel;
-    if(ft==='PS') {
-      fuel=qty>=0?'ps_dis':'ps_chg';
-    } else {
-      const mapped=FUEL_MAP[ft];
-      if(!mapped) return;
-      fuel=mapped; // 'ic' stays as 'ic' — handled below
-    }
+    if(ft==='PS') { fuel = qty>=0?'ps_dis':'ps_chg'; }
+    else { fuel = FUEL_MAP[ft]||'other'; }
     const key=`${sp}|${gsp}|${fuel}`;
     byKey[key]=(byKey[key]||0)+qty;
   });
 
-  // Demand by {sp|gsp}
-  const demKey={};
+  // ITSDO is national only (no GSP breakdown) — distribute proportionally later
+  // For now store as national total by SP
+  const natDemBySP={};
   demRows.forEach(row=>{
-    const sp=row.settlementPeriod||row.period;
-    let gsp=row.gspGroupId||row.gspGroup||row.gsP_GROUP_ID||'';
-    if(gsp&&!gsp.startsWith('_')) gsp='_'+gsp;
-    const mw=+(row.initialTransmissionSystemDemandOutturn||row.demand||row.quantity||0);
-    if(sp&&GSP_MAP[gsp]) demKey[`${sp}|${gsp}`]=(demKey[`${sp}|${gsp}`]||0)+mw;
+    const sp=row.settlementPeriod;
+    const mw=+(row.demand||0);
+    if(sp) natDemBySP[sp]=(natDemBySP[sp]||0)+mw;
   });
 
-  // IC detail from FUELHH
+  // FUELHH IC detail by SP and fuelType
   const icBySpType={};
   fuelhh.forEach(row=>{
-    const sp=row.settlementPeriod||row.period;
+    const sp=row.settlementPeriod;
     const ft=row.fuelType||'';
-    const mw=+(row.generation||row.quantity||0);
+    const mw=+(row.generation||0);
     if(IC_META[ft]&&sp) icBySpType[`${sp}|${ft}`]=(icBySpType[`${sp}|${ft}`]||0)+mw;
   });
 
-  const allSps=[...new Set(rawB.map(r=>r.settlementPeriod||r.period).filter(Boolean))].sort((a,b)=>+a-+b);
+  const allSps=[...new Set(rawB.map(r=>r.settlementPeriod).filter(Boolean))].sort((a,b)=>+a-+b);
 
+  // Calculate total generation per SP for demand distribution
   return allSps.map(sp=>{
     const byGsp={};
+    // Aggregate generation per GSP
+    let totalGenAllGsp=0;
     Object.keys(GSP_MAP).forEach(gsp=>{
       const byFuel={};
       ['ps_dis','ps_chg','nuclear','coal','biomass','hydro','wind','solar','gas','oil','other','ic'].forEach(fuel=>{
         const v=byKey[`${sp}|${gsp}|${fuel}`]||0;
         if(Math.abs(v)>0) byFuel[fuel]=v;
       });
-      byGsp[gsp]={byFuel, demand:demKey[`${sp}|${gsp}`]||0};
+      const genTotal=Object.entries(byFuel).reduce((s,[k,v])=>k==='ps_chg'?s:s+Math.max(0,v),0);
+      totalGenAllGsp+=genTotal;
+      byGsp[gsp]={byFuel, demand:0, _gen:genTotal};
     });
+
+    // Distribute national demand proportionally to generation
+    const natDem=natDemBySP[sp]||0;
+    Object.keys(GSP_MAP).forEach(gsp=>{
+      const share = totalGenAllGsp>0 ? byGsp[gsp]._gen/totalGenAllGsp : 1/14;
+      byGsp[gsp].demand = Math.round(natDem*share);
+    });
+
     const icSnap=Object.entries(IC_META).map(([k,meta])=>({
       key:k, name:meta.name, ci:meta.ci, mw:icBySpType[`${sp}|${k}`]||0
     })).filter(x=>Math.abs(x.mw)>0);
+
     const hh=Math.floor((+sp-1)/2);
     const mm=(+sp-1)%2===0?'00':'30';
-    const label=`${String(hh).padStart(2,'0')}:${mm}`;
-    return{sp:+sp, label, byGsp, icSnap};
+    return{sp:+sp, label:`${String(hh).padStart(2,'0')}:${mm}`, byGsp, icSnap};
   });
 }
 
