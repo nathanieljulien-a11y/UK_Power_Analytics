@@ -357,6 +357,20 @@ function topFuels(byFuel) {
 }
 
 function renderMap() {
+  const p=curPeriod();
+  if(!p) { svg.selectAll('path.rgn').attr('fill','#ccc'); return; }
+  // Debug: log first GSP key to verify data shape
+  const gspKeys=Object.keys(p.byGsp);
+  if(gspKeys.length && !window._mapDebugLogged) {
+    window._mapDebugLogged=true;
+    const sampleGsp=gspKeys[0];
+    const sampleData=p.byGsp[sampleGsp];
+    console.log('renderMap debug — byGsp keys:',gspKeys.slice(0,5),'sample:',sampleGsp,'byFuel:',sampleData?.byFuel,'totalGen:',totalGen(sampleData));
+    // Also log what the SVG features have as _gsp
+    const featGsps=[];
+    svg.selectAll('path.rgn').each(d=>featGsps.push(d.properties._gsp));
+    console.log('SVG feature _gsp values:',featGsps);
+  }
   svg.selectAll('path.rgn')
     .attr('fill', f => {
       const gsp=f.properties._gsp;
