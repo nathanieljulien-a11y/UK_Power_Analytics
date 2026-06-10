@@ -337,26 +337,32 @@ function fitMap(geo) {
   const w = mapEl.clientWidth, h = mapEl.clientHeight;
   if (w < 10 || h < 10) { setTimeout(()=>fitMap(geo), 80); return; }
 
-  // Reset projection to a known-good GB centre/scale first so proj() never returns NaN
-  // GB bounding box: lon -8..2, lat 49.5..61
-  proj = d3.geoMercator()
-    .center([-3.5, 55.5])
-    .scale(1)
-    .translate([w/2, h/2]);
+  // GB spans roughly lon -8 to +2, lat 49.5 to 61.
+  // We manually compute scale and translate to fill the viewport reliably.
+  // This avoids fitExtent entirely — fitExtent with mercator can produce NaN
+  // when the bounding box computation hits edge cases.
 
-  // Now attempt to fit to the actual geometry if we have valid features
-  if (geo && geo.features && geo.features.length > 0) {
-    try {
-      proj.fitExtent([[14,14],[w-14,h-14]], geo);
-    } catch(e) {
-      console.warn('fitExtent failed, using manual scale', e);
-      // Manual scale: ~1400px per radian for GB at this viewport
-      proj.scale(Math.min(w,h) * 3.2).center([-3.5, 55.5]);
-    }
+  // The shorter dimension drives the scale so GB fits without clipping
+  const pad    = 20;
+  const aspect = (2 - (-8)) / (61 - 49.5); // lon-range / lat-range ≈ 0.87
+  let scale, tx, ty;
+
+  if (w / h < aspect) {
+    // Width-constrained
+    scale = (w - pad*2) / (10 * Math.PI / 180) * (180 / Math.PI);
   } else {
-    // No features — use manual scale so GB fills the viewport
-    proj.scale(Math.min(w,h) * 3.2).center([-3.5, 55.5]);
+    // Height-constrained — GB lat span in mercator radians
+    const latSpanMerc = Math.log(Math.tan(Math.PI/4 + 61*Math.PI/360)) -
+                        Math.log(Math.tan(Math.PI/4 + 49.5*Math.PI/360));
+    scale = (h - pad*2) / latSpanMerc;
   }
+
+  // Translate: project the centre of GB (-3.5, 55.5) to the viewport centre
+  proj = d3.geoMercator().scale(scale).translate([0, 0]);
+  const centrePx = proj([-3.5, 55.5]);
+  tx = w/2 - centrePx[0];
+  ty = h/2 - centrePx[1];
+  proj.translate([tx, ty]);
 
   pFn = d3.geoPath().projection(proj);
   svg.attr('viewBox', `0 0 ${w} ${h}`);
