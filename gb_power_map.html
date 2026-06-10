@@ -336,22 +336,31 @@ function buildFallbackGeo() {
 function fitMap(geo) {
   const w = mapEl.clientWidth, h = mapEl.clientHeight;
   if (w < 10 || h < 10) { setTimeout(()=>fitMap(geo), 80); return; }
-  // Validate projection won't produce NaN — fitExtent needs valid numeric bounds
-  if (!isFinite(w) || !isFinite(h)) return;
-  try {
-    proj.fitExtent([[14,14],[w-14,h-14]], geo);
-    // Check projection output is valid by testing a known GB coordinate
-    const testPt = proj([-3, 55]);
-    if (!testPt || !isFinite(testPt[0]) || !isFinite(testPt[1])) {
-      throw new Error('Projection returned NaN for test point');
+
+  // Reset projection to a known-good GB centre/scale first so proj() never returns NaN
+  // GB bounding box: lon -8..2, lat 49.5..61
+  proj = d3.geoMercator()
+    .center([-3.5, 55.5])
+    .scale(1)
+    .translate([w/2, h/2]);
+
+  // Now attempt to fit to the actual geometry if we have valid features
+  if (geo && geo.features && geo.features.length > 0) {
+    try {
+      proj.fitExtent([[14,14],[w-14,h-14]], geo);
+    } catch(e) {
+      console.warn('fitExtent failed, using manual scale', e);
+      // Manual scale: ~1400px per radian for GB at this viewport
+      proj.scale(Math.min(w,h) * 3.2).center([-3.5, 55.5]);
     }
-    pFn = d3.geoPath().projection(proj);
-    svg.attr('viewBox', `0 0 ${w} ${h}`);
-    redrawPaths(geo);
-  } catch(e) {
-    console.warn('fitMap failed, retrying', e);
-    setTimeout(()=>fitMap(geo), 100);
+  } else {
+    // No features — use manual scale so GB fills the viewport
+    proj.scale(Math.min(w,h) * 3.2).center([-3.5, 55.5]);
   }
+
+  pFn = d3.geoPath().projection(proj);
+  svg.attr('viewBox', `0 0 ${w} ${h}`);
+  redrawPaths(geo);
 }
 
 function redrawPaths(geo) {
@@ -903,10 +912,13 @@ async function boot() {
   showLoader('Loading boundary data…', 'Fetching DNO region polygons from NESO');
   const geo = await loadGeo();
 
-  // Wait for container to have real dimensions before fitting
+  // Wait for container to have real dimensions before fitting (max 2s)
   await new Promise(r=>{
+    let attempts=0;
     function tryFit(){
+      attempts++;
       if(mapEl.clientWidth>20&&mapEl.clientHeight>20){ fitMap(geo); r(); }
+      else if(attempts>40){ fitMap(geo); r(); }
       else setTimeout(tryFit,50);
     }
     tryFit();
