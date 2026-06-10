@@ -82,8 +82,8 @@ const TESTS = [
   },
   {
     id:'itsdo',
-    label:'ITSDO — 2026-05-28',
-    url: `${ELX}/datasets/ITSDO?from=2026-05-28T00:00Z&to=2026-05-28T01:00Z&format=json`,
+    label:'ITSDO — settlementDate=2026-05-28',
+    url: `${ELX}/datasets/ITSDO?settlementDate=2026-05-28&format=json`,
     transform: j => {
       const arr = j.data||j||[];
       return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}`;
@@ -91,8 +91,8 @@ const TESTS = [
   },
   {
     id:'fuelhh',
-    label:'FUELHH — 2026-05-28',
-    url: `${ELX}/datasets/FUELHH?from=2026-05-28T00:00Z&to=2026-05-28T01:00Z&format=json`,
+    label:'FUELHH — settlementDate=2026-05-28',
+    url: `${ELX}/datasets/FUELHH?settlementDate=2026-05-28&format=json`,
     transform: j => {
       const arr = j.data||j||[];
       return `Items returned: ${arr.length}\n\nFirst item:\n${JSON.stringify(arr[0], null, 2)}\n\nFields: ${arr[0]?Object.keys(arr[0]).join(', '):'none'}`;
