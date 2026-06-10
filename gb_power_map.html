@@ -599,6 +599,10 @@ async function loadBMRef(){
   if(!res.ok) throw new Error('BMRef HTTP '+res.status);
   const j=await res.json();
   const arr=j.data||j||[];
+  // Diagnostic: count fuel types
+  const ftCounts={};
+  arr.forEach(u=>{ const ft=u.fuelType||'NULL'; ftCounts[ft]=(ftCounts[ft]||0)+1; });
+  console.log('BMRef fuelType distribution:',JSON.stringify(ftCounts));
   bmRef.clear();
   arr.forEach(u=>{
     const ngcId=u.nationalGridBmUnit||'';
