@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>GB Power · Generation Mix</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -151,9 +154,9 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
         <div class="dnote" style="margin-top:4px">+ve = import · −ve = export · gCO₂/kWh indicative by source country</div>
       </div>
       <div class="dnote" id="s-note">
-        <strong>Data source:</strong> Elexon B1610 — transmission-connected metered generation only (~40% of total MW by count, covers all large dispatchable plant). Embedded generation (rooftop solar, small wind, distributed BESS) not included — it reduces net GSP demand rather than appearing here.<br><br>
-        <strong>Settlement lag:</strong> B1610 is published ~6 working days after generation date. Showing most recent available data.<br><br>
-        <strong>* Other</strong> includes grid-scale BESS — not yet separately classified in Elexon's fuel taxonomy.
+        <strong>Data source:</strong> Elexon B1610 — transmission-connected (T_) and registered embedded (E_) generators. Supplier aggregation units (2__ prefix) are excluded — these are demand-side metering constructs, not physical generators. Unregistered embedded generation (rooftop solar, small wind) reduces net GSP demand but does not appear here.<br><br>
+        <strong>Settlement lag:</strong> B1610 is published ~6 working days after generation date.<br><br>
+        <strong>* Other</strong> includes grid-scale BESS and unclassified T_ units — not yet separately identified in Elexon's fuel taxonomy.
       </div>
     </div>
 
@@ -663,17 +666,25 @@ async function fetchAGPTRange(fromISO,toISO){
 // ═══════════════════════════════════════════════════════════════
 function aggregateB1610(rawB, fuelhh) {
   const byKey={};
-  let matchedMW=0, unmatchedMW=0;
+  let matchedMW=0, skippedSupplier=0, unmatchedMW=0;
 
   rawB.forEach(row=>{
     const bmId=row.bmUnit||'';
     const ngId=row.nationalGridBmUnitId||'';
     const sp=row.settlementPeriod;
-    const qty=-(+(row.quantity||0)); // B1610: negative=generation, positive=consumption — invert so generation is positive
+    const qty=-(+(row.quantity||0)); // B1610: negative=generation — invert to positive
     if(!sp) return;
-    const ref=bmRef.get(bmId)||bmRef.get(ngId)||bmRef.get(bmId.replace(/^2__/,''))||bmRef.get('T_'+bmId.replace(/^2__/,''))||bmRef.get('E_'+bmId.replace(/^2__/,''));
-    if(!ref){unmatchedMW+=Math.abs(qty);return;}
+
+    // Skip 2__ supplier/aggregated units — demand-side metering, not physical generators
+    if(bmId.startsWith('2__')){ skippedSupplier+=Math.abs(qty); return; }
+
+    // Join to BMRef: try direct bmUnit match (T_ or E_ prefixed), then stripped prefix
+    const ref = bmRef.get(bmId)
+             || bmRef.get(ngId)
+             || bmRef.get(bmId.replace(/^[TE]_/,''));
+    if(!ref){ unmatchedMW+=Math.abs(qty); return; }
     matchedMW+=Math.abs(qty);
+
     const ft=ref.fuelType||'OTHER';
     const gsp=ref.gspGroupId||'';
     if(!GSP_MAP[gsp]) return;
@@ -684,8 +695,8 @@ function aggregateB1610(rawB, fuelhh) {
     byKey[key]=(byKey[key]||0)+qty;
   });
 
-  const matchPct=(matchedMW/(matchedMW+unmatchedMW)*100).toFixed(0);
-  console.log(`B1610 MW match: ${matchPct}% — note: unmatched are embedded/distributed units not in BMRef (reduces net GSP demand rather than appearing as generation)`);
+  const total=matchedMW+unmatchedMW;
+  console.log(`B1610: ${Math.round(matchedMW)}MW matched, ${Math.round(skippedSupplier)}MW skipped (2__ supplier units), ${Math.round(unmatchedMW)}MW unmatched T_/E_ (${total>0?(matchedMW/total*100).toFixed(0):0}% of T_/E_ matched)`);
 
   // IC detail from live FUELHH
   const icByType={};
